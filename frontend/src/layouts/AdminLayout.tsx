@@ -1,4 +1,4 @@
-import { ReactNode, useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Database, Ticket, ArrowLeft, Shield } from 'lucide-react'
 import { useAdminStore } from '../store/adminStore'

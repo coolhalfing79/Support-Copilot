@@ -66,3 +66,6 @@ logs/
 # ─── ChromaDB local persistence ───────────────────────────────────────────────
 chroma/
 .chroma/
+
+
+.vite

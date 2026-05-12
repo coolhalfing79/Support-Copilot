@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { MessageBubble } from '../components/MessageBubble'
 import { MessageInput } from '../components/MessageInput'

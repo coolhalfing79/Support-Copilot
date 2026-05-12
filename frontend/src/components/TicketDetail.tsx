@@ -1,5 +1,5 @@
 import { X, ExternalLink, Calendar, Tag, ShieldAlert } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import type { Ticket } from '../store/adminStore'
 
 interface TicketDetailProps {
