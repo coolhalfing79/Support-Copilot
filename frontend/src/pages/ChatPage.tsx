@@ -5,23 +5,38 @@ import { MessageInput } from '../components/MessageInput'
 import { useUserStore } from '../store/userStore'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, MessageSquare, AlertTriangle, RefreshCcw } from 'lucide-react'
+import { Sparkles, MessageSquare, AlertTriangle, RefreshCcw, Loader2 } from 'lucide-react'
 import { TicketNotification } from '../components/TicketNotification'
 
 export const ChatPage = () => {
   const { sessionId } = useParams<{ sessionId: string }>()
   const navigate = useNavigate()
-  const { messages, setSessionId, isStreaming, clearMessages, isConnected } = useUserStore()
+  const { messages, setSessionId, isStreaming, clearMessages, isConnected, fetchSessionHistory } = useUserStore()
   const { sendMessage } = useWebSocket(sessionId || null)
   const scrollRef = useRef<HTMLDivElement>(null)
-
   const lastMessage = messages[messages.length - 1]
   const isEscalated = lastMessage?.role === 'assistant' && lastMessage?.action === 'escalated'
+
+  // Track the last user message ID to detect new messages
+  const lastUserMsgIdRef = useRef<string | null>(null)
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false)
+
+  // Detect when a new user message is sent
+  useEffect(() => {
+    if (lastMessage?.role === 'user') {
+      if (lastUserMsgIdRef.current !== lastMessage.id) {
+        lastUserMsgIdRef.current = lastMessage.id
+        setIsWaitingForResponse(true)
+      }
+    } else if (lastMessage?.role === 'assistant' && lastMessage?.content && lastMessage.content.length > 0) {
+      setIsWaitingForResponse(false)
+    }
+  }, [lastMessage, messages.length])
 
   // Initialize session
   useEffect(() => {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    
+
     if (!sessionId || !uuidRegex.test(sessionId)) {
       // Generate a valid UUID v4
       const newId = crypto.randomUUID()
@@ -29,7 +44,8 @@ export const ChatPage = () => {
       return
     }
     setSessionId(sessionId)
-  }, [sessionId, setSessionId, navigate])
+    fetchSessionHistory(sessionId)
+  }, [sessionId, setSessionId, navigate, fetchSessionHistory])
 
   // Auto-scroll
   useEffect(() => {
@@ -41,7 +57,7 @@ export const ChatPage = () => {
   return (
     <div className="flex flex-col h-full gap-6">
       {!isConnected && (
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="flex items-center justify-between gap-3 px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-medium"
@@ -50,7 +66,7 @@ export const ChatPage = () => {
             <AlertTriangle className="w-4 h-4" />
             <span>Disconnected from AI Service. Check if backend is running.</span>
           </div>
-          <button 
+          <button
             onClick={() => window.location.reload()}
             className="flex items-center gap-1.5 hover:text-white transition-colors"
           >
@@ -60,13 +76,13 @@ export const ChatPage = () => {
         </motion.div>
       )}
 
-      <div 
+      <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto pr-4 scroll-smooth"
       >
         <AnimatePresence initial={false}>
           {messages.length === 0 ? (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="h-full flex flex-col items-center justify-center text-center px-6"
@@ -78,34 +94,30 @@ export const ChatPage = () => {
               <p className="text-white/40 max-w-sm text-sm">
                 I'm your AI-powered L2 support agent. I can help resolve technical issues, clarify documentation, or escalate to a human if needed.
               </p>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-10 w-full max-w-md">
-                {[
-                  "How do I reset my password?",
-                  "Integration guide for Python",
-                  "Billing cycle questions",
-                  "API rate limits"
-                ].map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => sendMessage(suggestion)}
-                    className="text-left px-4 py-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors text-xs text-white/60 flex items-center gap-2 group"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 group-hover:text-nebula-blue transition-colors" />
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
+
             </motion.div>
           ) : (
             <div className="flex flex-col">
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} message={msg} />
               ))}
+
+              {/* Thinking indicator: shown while waiting for assistant response, hidden when content starts streaming */}
+              {isWaitingForResponse && !(lastMessage?.role === 'assistant' && lastMessage?.content && lastMessage.content.length > 0) && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 px-4 py-2 ml-12 text-xs text-white/40"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-nebula-blue" />
+                  <span>Thinking...</span>
+                </motion.div>
+              )}
+
               {isEscalated && (
-                <TicketNotification 
-                  ticketId={`TKT-${sessionId?.toUpperCase()}`} 
-                  status="IN_REVIEW" 
+                <TicketNotification
+                  ticketId={`TKT-${sessionId?.toUpperCase()}`}
+                  status="IN_REVIEW"
                 />
               )}
             </div>
@@ -114,24 +126,24 @@ export const ChatPage = () => {
       </div>
 
       <div className="flex-shrink-0">
-        <MessageInput 
-          onSendMessage={sendMessage} 
-          disabled={isStreaming || !isConnected} 
+        <MessageInput
+          onSendMessage={sendMessage}
+          disabled={isStreaming || !isConnected}
         />
         <div className="mt-3 flex items-center justify-center gap-4">
-           <p className="text-[10px] text-white/20 uppercase tracking-widest font-medium">
-             Shift + Enter for new line
-           </p>
-           <button 
-             onClick={() => {
-               clearMessages()
-               const newId = crypto.randomUUID()
-               navigate(`/chat/${newId}`)
-             }}
-             className="text-[10px] text-nebula-blue/40 hover:text-nebula-blue/80 uppercase tracking-widest font-bold transition-colors"
-           >
-             New Session
-           </button>
+          <p className="text-[10px] text-white/20 uppercase tracking-widest font-medium">
+            Shift + Enter for new line
+          </p>
+          <button
+            onClick={() => {
+              clearMessages()
+              const newId = crypto.randomUUID()
+              navigate(`/chat/${newId}`)
+            }}
+            className="text-[10px] text-nebula-blue/40 hover:text-nebula-blue/80 uppercase tracking-widest font-bold transition-colors"
+          >
+            New Ticket
+          </button>
         </div>
       </div>
     </div>

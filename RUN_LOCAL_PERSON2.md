@@ -17,7 +17,7 @@ This validates Person 1 + Person 2 together on Windows.
 
 - Docker Desktop running
 - Python 3.12
-- Repo cloned at `D:\SemiColon2026`
+- Repo cloned at `C:\Users\shrey\Desktop\semi\Support-Copilot`
 
 ---
 
@@ -28,19 +28,19 @@ This validates Person 1 + Person 2 together on Windows.
 ```powershell
 docker pull pgvector/pgvector:pg15
 docker rm -f copilot-pgvector 2>$null
-docker run -d --name copilot-pgvector \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=copilot \
-  -p 5432:5432 \
+docker run -d --name copilot-pgvector `
+  -e POSTGRES_USER=postgres `
+  -e POSTGRES_PASSWORD=postgres `
+  -e POSTGRES_DB=copilot `
+  -p 5432:5432 `
   pgvector/pgvector:pg15
 ```
 
 Apply schema + seed:
 
 ```powershell
-Get-Content "D:\SemiColon2026\infra\scripts\init_db.sql" -Raw | docker exec -i copilot-pgvector psql -U postgres -d copilot
-Get-Content "D:\SemiColon2026\infra\scripts\seed_data.sql" -Raw | docker exec -i copilot-pgvector psql -U postgres -d copilot
+Get-Content "C:\Users\shrey\Desktop\semi\Support-Copilot\infra\scripts\init_db.sql" -Raw | docker exec -i copilot-pgvector psql -U postgres -d copilot
+Get-Content "C:\Users\shrey\Desktop\semi\Support-Copilot\infra\scripts\seed_data.sql" -Raw | docker exec -i copilot-pgvector psql -U postgres -d copilot
 ```
 
 ### ChromaDB
@@ -56,7 +56,7 @@ docker run -d --name copilot-chroma -p 8001:8000 chromadb/chroma
 ## 3) Python environment
 
 ```powershell
-cd D:\SemiColon2026\backend
+cd C:\Users\shrey\Desktop\semi\Support-Copilot\backend
 Remove-Item -Recurse -Force .venv -ErrorAction SilentlyContinue
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
@@ -82,7 +82,7 @@ Install Person 2 deps:
 Copy-Item .env.example .env -Force
 ```
 
-Edit `D:\SemiColon2026\backend\.env` and ensure:
+Edit `C:\Users\shrey\Desktop\semi\Support-Copilot\backend\.env` and ensure:
 
 ```env
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/copilot
@@ -124,14 +124,14 @@ Open:
 In another terminal (current directory **must** be `backend` so `.env` loads):
 
 ```powershell
-cd D:\SemiColon2026\backend
+cd C:\Users\shrey\Desktop\semi\Support-Copilot\backend
 .\.venv\Scripts\python.exe scripts\person2_e2e_smoke.py
 ```
 
 Or run as a module (same `cd`, avoids import-path surprises):
 
 ```powershell
-cd D:\SemiColon2026\backend
+cd C:\Users\shrey\Desktop\semi\Support-Copilot\backend
 .\.venv\Scripts\python.exe -m scripts.person2_e2e_smoke
 ```
 

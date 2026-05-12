@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     # Keep as plain string to avoid pydantic-settings trying JSON decode before custom validators.
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000,http://localhost:5173"
 
+    SECRET_KEY: str = "super-secret-key-change-it-in-production"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+
     def cors_origins_list(self) -> list[str]:
         raw = (self.CORS_ORIGINS or "").strip()
         if not raw:

@@ -1,59 +1,69 @@
-"""Embedding engine using Gemini embeddings."""
+"""Embedding engine using local FastEmbed model (BAAI/bge-small-en-v1.5).
+
+Runs entirely on-device via ONNX Runtime — no API keys, no rate limits.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import logging
+from typing import TYPE_CHECKING
 
-from google import genai
-from google.genai import types
+if TYPE_CHECKING:
+    from fastembed import TextEmbedding
 
-from config.settings import get_settings
+logger = logging.getLogger(__name__)
 
 _emb_instance: "EmbeddingEngine | None" = None
 
+_MODEL_NAME = "BAAI/bge-small-en-v1.5"
+_EMBEDDING_DIM = 384
+
 
 class EmbeddingEngine:
-    """Engine for generating text embeddings."""
+    """Engine for generating text embeddings using a local model."""
 
     def __init__(self) -> None:
-        settings = get_settings()
-        self.model_name = settings.GEMINI_EMBEDDING_MODEL.removeprefix("models/")
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        self.config = types.EmbedContentConfig(
-            task_type="RETRIEVAL_DOCUMENT",
-            output_dimensionality=self.get_embedding_dimension(),
-        )
+        from fastembed import TextEmbedding
+
+        logger.info("Loading local embedding model: %s", _MODEL_NAME)
+        self.model: TextEmbedding = TextEmbedding(model_name=_MODEL_NAME)
+        logger.info("Embedding model loaded successfully")
+
+    # ------------------------------------------------------------------
+    # Public API (async wrappers)
+    # ------------------------------------------------------------------
 
     async def embed_query(self, text: str) -> list[float]:
-        query_config = types.EmbedContentConfig(
-            task_type="RETRIEVAL_QUERY",
-            output_dimensionality=self.get_embedding_dimension(),
-        )
-        return await asyncio.to_thread(self._embed_one, text, query_config)
+        """Embed a single query string for retrieval."""
+        return await asyncio.to_thread(self._embed_one, text)
 
     async def embed_documents(self, documents: list[str]) -> list[list[float]]:
+        """Embed a list of document chunks for storage."""
         if not documents:
             return []
         return await asyncio.to_thread(self._embed_many, documents)
 
-    def _embed_one(self, text: str, config: types.EmbedContentConfig) -> list[float]:
-        result = self.client.models.embed_content(
-            model=self.model_name,
-            contents=text,
-            config=config,
-        )
-        return list(result.embeddings[0].values)
+    # ------------------------------------------------------------------
+    # Internal helpers (synchronous, run in thread)
+    # ------------------------------------------------------------------
+
+    def _embed_one(self, text: str) -> list[float]:
+        embeddings = list(self.model.embed([text]))
+        return embeddings[0].tolist()
 
     def _embed_many(self, documents: list[str]) -> list[list[float]]:
-        result = self.client.models.embed_content(
-            model=self.model_name,
-            contents=documents,
-            config=self.config,
-        )
-        return [list(embedding.values) for embedding in result.embeddings]
+        logger.info("Embedding %d documents locally...", len(documents))
+        embeddings = list(self.model.embed(documents))
+        logger.info("Finished embedding %d documents", len(documents))
+        return [e.tolist() for e in embeddings]
+
+    # ------------------------------------------------------------------
+    # Metadata
+    # ------------------------------------------------------------------
 
     def get_embedding_dimension(self) -> int:
-        return 768
+        return _EMBEDDING_DIM
 
 
 def get_embedding_engine() -> EmbeddingEngine:

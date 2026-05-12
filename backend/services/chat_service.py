@@ -32,10 +32,7 @@ from services.ticket_service import TicketService
 
 logger = logging.getLogger(__name__)
 
-# Hard-coded demo user — no auth layer yet.
-DEMO_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
-DEMO_USER_NAME = "demo-user"
-DEMO_USER_EMAIL = "demo@copilot.local"
+# Authentication and user-specific session management.
 
 
 class ChatService:
@@ -58,29 +55,14 @@ class ChatService:
     async def create_session(
         self,
         db: AsyncSession,
-        user_id: str | None = None,
+        user_id: uuid.UUID,
         title: str | None = None,
         session_id: str | None = None,
     ) -> Session:
-        """Create a new chat session, auto-creating the demo user if needed."""
-        uid = uuid.UUID(user_id) if user_id else DEMO_USER_ID
-
-        # Ensure the user row exists (demo convenience).
-        user = await db.get(User, uid)
-        if user is None:
-            user = User(
-                id=uid,
-                username=DEMO_USER_NAME,
-                email=DEMO_USER_EMAIL,
-                password_hash="not-a-real-hash",
-                role="agent",
-            )
-            db.add(user)
-            await db.flush()
-
+        """Create a new chat session for a specific user."""
         session = Session(
             id=uuid.UUID(session_id) if session_id else uuid.uuid4(),
-            user_id=uid,
+            user_id=user_id,
             title=title or "New Conversation",
             status="active",
         )
@@ -89,21 +71,20 @@ class ChatService:
         await db.refresh(session)
         return session
 
-    async def get_session(self, db: AsyncSession, session_id: str) -> Session | None:
-        """Load a session with its messages eagerly loaded."""
-        result = await db.execute(
-            select(Session)
-            .where(Session.id == session_id)
-            .options(selectinload(Session.messages))
-        )
+    async def get_session(self, db: AsyncSession, session_id: str, user_id: uuid.UUID | None = None) -> Session | None:
+        """Load a session with its messages, optionally filtering by user for security."""
+        stmt = select(Session).where(Session.id == session_id).options(selectinload(Session.messages))
+        if user_id:
+            stmt = stmt.where(Session.user_id == user_id)
+        
+        result = await db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def list_sessions(
-        self, db: AsyncSession, user_id: str | None = None
+        self, db: AsyncSession, user_id: uuid.UUID
     ) -> list[Session]:
-        stmt = select(Session).order_by(Session.updated_at.desc())
-        if user_id:
-            stmt = stmt.where(Session.user_id == user_id)
+        """List sessions belonging to a specific user."""
+        stmt = select(Session).where(Session.user_id == user_id).order_by(Session.updated_at.desc())
         result = await db.execute(stmt)
         return list(result.scalars().all())
 
@@ -146,8 +127,10 @@ class ChatService:
         self,
         db: AsyncSession,
         session_id: str,
+        user_id: uuid.UUID,
         user_message: str,
         follow_up_responses: list[str] | None = None,
+        knowledge_source_ids: list[str] | None = None,
     ) -> ChatResponse:
         """Full pipeline: store → confidence → RAG → respond.
 
@@ -162,11 +145,10 @@ class ChatService:
         """
 
         # ── 1. Ensure session exists ────────────────────────────────────
-        session = await self.get_session(db, session_id)
+        session = await self.get_session(db, session_id, user_id=user_id)
         if not session:
-            logger.info(f"Session {session_id} not found, creating it...")
-            session = await self.create_session(db, user_id=None, title=user_message[:80], session_id=session_id)
-            # Re-fetch or ensure session_id matches
+            logger.info(f"Session {session_id} not found for user {user_id}, creating it...")
+            session = await self.create_session(db, user_id=user_id, title=user_message[:80], session_id=session_id)
             session_id = str(session.id)
 
         # ── 2. Store user message ───────────────────────────────────────
@@ -215,7 +197,10 @@ class ChatService:
             )
 
         # ── 4. MEDIUM / HIGH → RAG search ──────────────────────────────
-        search_results = await self.rag_engine.search(user_message)
+        filters = None
+        if knowledge_source_ids:
+            filters = {"source_id": {"$in": knowledge_source_ids}}
+        search_results = await self.rag_engine.search(user_message, filters=filters)
 
         if not search_results:
             # No docs at all → escalate immediately.
@@ -257,14 +242,16 @@ class ChatService:
         self,
         db: AsyncSession,
         session_id: str,
+        user_id: uuid.UUID,
         user_message: str,
+        knowledge_source_ids: list[str] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Orchestrates the pipeline and yields chunks for streaming."""
         
         # 1. Ensure session exists
-        session = await self.get_session(db, session_id)
+        session = await self.get_session(db, session_id, user_id=user_id)
         if not session:
-            session = await self.create_session(db, user_id=None, title=user_message[:80], session_id=session_id)
+            session = await self.create_session(db, user_id=user_id, title=user_message[:80], session_id=session_id)
             session_id = str(session.id)
 
         # 2. Store user message
@@ -298,7 +285,10 @@ class ChatService:
             return
 
         # 6. RAG Search
-        search_results = await self.rag_engine.search(user_message)
+        filters = None
+        if knowledge_source_ids:
+            filters = {"source_id": {"$in": knowledge_source_ids}}
+        search_results = await self.rag_engine.search(user_message, filters=filters)
         if not search_results:
             resp = await self._escalate(db, session_id, user_message, history, "medium")
             yield {"type": "start"}

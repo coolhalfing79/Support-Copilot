@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from api.dependencies import DbSession
+from api.dependencies import DbSession, CurrentUser
 from schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -28,11 +28,12 @@ router = APIRouter()
 )
 async def create_session(
     db: DbSession,
+    user: CurrentUser,
     _: SessionCreate | None = None,
 ) -> SessionResponse:
     """Create a new chat session."""
     chat_service = get_chat_service()
-    session = await chat_service.create_session(db)
+    session = await chat_service.create_session(db, user_id=user.id)
     return SessionResponse.model_validate(session)
 
 
@@ -44,6 +45,7 @@ async def send_message(
     session_id: UUID,
     message: ChatRequest,
     db: DbSession,
+    user: CurrentUser,
 ) -> ChatResponse:
     """Send a user message and get an AI response."""
     chat_service = get_chat_service()
@@ -51,6 +53,7 @@ async def send_message(
         response = await chat_service.process_message(
             db=db,
             session_id=str(session_id),
+            user_id=user.id,
             user_message=message.message,
             follow_up_responses=message.follow_up_responses,
         )
@@ -66,10 +69,10 @@ async def send_message(
     "/sessions",
     response_model=SessionListResponse,
 )
-async def list_sessions(db: DbSession) -> SessionListResponse:
-    """List all chat sessions."""
+async def list_sessions(db: DbSession, user: CurrentUser) -> SessionListResponse:
+    """List all chat sessions for the current user."""
     chat_service = get_chat_service()
-    sessions = await chat_service.list_sessions(db)
+    sessions = await chat_service.list_sessions(db, user_id=user.id)
     return SessionListResponse(
         sessions=[SessionResponse.model_validate(s) for s in sessions]
     )
@@ -79,10 +82,14 @@ async def list_sessions(db: DbSession) -> SessionListResponse:
     "/sessions/{session_id}",
     response_model=SessionDetailResponse,
 )
-async def get_session(session_id: UUID, db: DbSession) -> SessionDetailResponse:
-    """Get a session with its full message history."""
+async def get_session(
+    session_id: UUID, 
+    db: DbSession,
+    user: CurrentUser,
+) -> SessionDetailResponse:
+    """Get a session with its full message history, ensuring it belongs to the user."""
     chat_service = get_chat_service()
-    session = await chat_service.get_session(db, str(session_id))
+    session = await chat_service.get_session(db, str(session_id), user_id=user.id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
