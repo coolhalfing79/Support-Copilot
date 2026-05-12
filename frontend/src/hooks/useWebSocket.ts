@@ -13,7 +13,7 @@ export const useWebSocket = (sessionId: string | null) => {
   const { addMessage, updateLastMessage, setStreaming, setConnected } = useUserStore()
   const reconnectTimeoutRef = useRef<number | null>(null)
   const isMounted = useRef(true)
-  
+
   // Use a ref to keep track of the current store functions (avoids stale closures)
   const storeRef = useRef({ addMessage, updateLastMessage, setStreaming, setConnected })
   useEffect(() => {
@@ -29,7 +29,7 @@ export const useWebSocket = (sessionId: string | null) => {
 
   const connect = useCallback(() => {
     if (!sessionId || !isMounted.current) return
-    
+
     // If we already have a socket for THIS session and it's alive, don't do anything
     if (globalSocket && globalSessionId === sessionId) {
       if (globalSocket.readyState <= WebSocket.OPEN) return
@@ -44,11 +44,11 @@ export const useWebSocket = (sessionId: string | null) => {
 
     console.log('🌐 [WebSocket] Connecting to:', `${WS_BASE_URL}/${sessionId}`)
     globalSessionId = sessionId
-    
+
     // Get real token from authStore
     const token = useAuthStore.getState().token
     const url = `${WS_BASE_URL}/${sessionId}?token=${token}`
-    
+
     try {
       const ws = new WebSocket(url)
       globalSocket = ws
@@ -65,7 +65,7 @@ export const useWebSocket = (sessionId: string | null) => {
         if (!isMounted.current) return
         const data = JSON.parse(event.data)
         console.log('📥 [WebSocket] Message:', data.type)
-        
+
         switch (data.type) {
           case 'start':
             storeRef.current.setStreaming(true)
@@ -76,29 +76,29 @@ export const useWebSocket = (sessionId: string | null) => {
               timestamp: new Date().toISOString(),
             })
             break
-          
+
           case 'chunk':
             storeRef.current.updateLastMessage(data.content)
             break
-          
+
           case 'final':
             storeRef.current.setStreaming(false)
             if (data.action || data.suggestions) {
-               useUserStore.setState((state) => {
-                 const newMessages = [...state.messages]
-                 if (newMessages.length > 0) {
-                   const lastIdx = newMessages.length - 1
-                   newMessages[lastIdx] = {
-                     ...newMessages[lastIdx],
-                     action: data.action,
-                     suggestions: data.suggestions
-                   }
-                 }
-                 return { messages: newMessages }
-               })
+              useUserStore.setState((state) => {
+                const newMessages = [...state.messages]
+                if (newMessages.length > 0) {
+                  const lastIdx = newMessages.length - 1
+                  newMessages[lastIdx] = {
+                    ...newMessages[lastIdx],
+                    action: data.action,
+                    suggestions: data.suggestions
+                  }
+                }
+                return { messages: newMessages }
+              })
             }
             break
-          
+
           case 'error':
             storeRef.current.setStreaming(false)
             console.error('❌ [WebSocket] Error:', data.message)
@@ -150,8 +150,12 @@ export const useWebSocket = (sessionId: string | null) => {
 
   const sendMessage = (content: string) => {
     const msg = content.trim()
-    if (!msg) return
+    if (!msg) {
+      console.log('[WS] sendMessage: empty message, returning')
+      return
+    }
 
+    console.log('[WS] sendMessage: socket readyState =', globalSocket?.readyState, 'is OPEN =', globalSocket?.readyState === WebSocket.OPEN)
     if (globalSocket?.readyState === WebSocket.OPEN) {
       console.log('📤 [WebSocket] Sending:', msg)
       const userMessage = {
@@ -161,10 +165,10 @@ export const useWebSocket = (sessionId: string | null) => {
         timestamp: new Date().toISOString(),
       }
       storeRef.current.addMessage(userMessage as any)
-      
+
       const { selectedSources } = useUserStore.getState()
-      
-      globalSocket.send(JSON.stringify({ 
+
+      globalSocket.send(JSON.stringify({
         type: 'message',
         content: msg,
         knowledge_sources: selectedSources.length > 0 ? selectedSources : undefined

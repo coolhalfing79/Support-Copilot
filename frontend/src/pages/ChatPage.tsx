@@ -5,7 +5,7 @@ import { MessageInput } from '../components/MessageInput'
 import { useUserStore } from '../store/userStore'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Sparkles, MessageSquare, AlertTriangle, RefreshCcw } from 'lucide-react'
+import { Sparkles, MessageSquare, AlertTriangle, RefreshCcw, Loader2 } from 'lucide-react'
 import { TicketNotification } from '../components/TicketNotification'
 
 export const ChatPage = () => {
@@ -14,9 +14,33 @@ export const ChatPage = () => {
   const { messages, setSessionId, isStreaming, clearMessages, isConnected, fetchSessionHistory } = useUserStore()
   const { sendMessage } = useWebSocket(sessionId || null)
   const scrollRef = useRef<HTMLDivElement>(null)
-
   const lastMessage = messages[messages.length - 1]
   const isEscalated = lastMessage?.role === 'assistant' && lastMessage?.action === 'escalated'
+
+  // Track the last user message ID to detect new messages
+  const lastUserMsgIdRef = useRef<string | null>(null)
+  const [isWaitingForResponse, setIsWaitingForResponse] = useState(false)
+
+  // Detect when a new user message is sent
+  useEffect(() => {
+    if (lastMessage?.role === 'user') {
+      if (lastUserMsgIdRef.current !== lastMessage.id) {
+        // New user message detected
+        console.log('[ChatPage] New user message detected:', lastMessage.id)
+        lastUserMsgIdRef.current = lastMessage.id
+        setIsWaitingForResponse(true)
+      }
+    } else if (lastMessage?.role === 'assistant' && lastMessage?.content && lastMessage.content.length > 0) {
+      // Assistant has responded with content
+      console.log('[ChatPage] Assistant responded with content, length:', lastMessage.content.length)
+      setIsWaitingForResponse(false)
+    }
+  }, [lastMessage, messages.length])
+
+  // Debug: log indicator state
+  useEffect(() => {
+    console.log('[ChatPage] isWaitingForResponse:', isWaitingForResponse, 'lastRole:', lastMessage?.role, 'lastContentLen:', lastMessage?.content?.length ?? 0)
+  }, [isWaitingForResponse, lastMessage])
 
   // Initialize session
   useEffect(() => {
@@ -86,6 +110,19 @@ export const ChatPage = () => {
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} message={msg} />
               ))}
+
+              {/* Thinking indicator: shown while waiting for assistant response */}
+              {isWaitingForResponse && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 px-4 py-2 ml-12 text-xs text-white/40"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-nebula-blue" />
+                  <span>Thinking...</span>
+                </motion.div>
+              )}
+
               {isEscalated && (
                 <TicketNotification
                   ticketId={`TKT-${sessionId?.toUpperCase()}`}
