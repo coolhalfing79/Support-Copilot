@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
-import { Bot, User, CheckCircle2, AlertCircle, HelpCircle } from 'lucide-react'
+import { Bot, User, CheckCircle2, AlertCircle, HelpCircle, Copy, Check } from 'lucide-react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { Message } from '../store/userStore'
 import { ClarificationChips } from './ClarificationChips'
@@ -15,8 +16,19 @@ interface MessageBubbleProps {
 
 export const MessageBubble = ({ message }: MessageBubbleProps) => {
   const isAI = message.role === 'assistant'
+  const [copied, setCopied] = useState(false)
   const { sessionId } = useParams<{ sessionId: string }>()
   const { sendMessage } = useWebSocket(sessionId || null)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content.replace(/[#*`_~]/g, ''))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      console.error('Failed to copy text')
+    }
+  }
 
   return (
     <motion.div
@@ -37,8 +49,8 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
         <div
           className={cn(
             "px-5 py-3.5 rounded-2xl relative transition-all",
-            isAI 
-              ? "glass-panel text-white/90" 
+            isAI
+              ? "glass-panel text-white/90"
               : "bg-gradient-to-br from-nebula-blue to-nebula-purple text-white shadow-lg shadow-nebula-blue/10"
           )}
         >
@@ -62,29 +74,35 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
             )}
           </div>
 
-          {/* Action Indicators */}
-          {isAI && message.action && (
-            <div className={cn(
-              "mt-3 pt-3 border-t border-white/10 flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider",
-              message.action === 'resolve' && "text-emerald-400",
-              message.action === 'clarification' && "text-amber-400",
-              message.action === 'escalated' && "text-rose-400"
-            )}>
-              {message.action === 'resolve' && <CheckCircle2 className="w-3.5 h-3.5" />}
-              {message.action === 'clarification' && <HelpCircle className="w-3.5 h-3.5" />}
-              {message.action === 'escalated' && <AlertCircle className="w-3.5 h-3.5" />}
-              {message.action}
-            </div>
-          )}
-          
           <span className="text-[10px] text-white/30 absolute bottom-[-18px] right-2 font-medium">
             {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
         </div>
 
+        {/* Copy Button (below bubble for AI responses) */}
+        {isAI && (
+          <button
+            onClick={handleCopy}
+            className="self-start flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/40 hover:text-white/70 transition-all text-xs font-medium"
+            title="Copy response"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-emerald-400">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+        )}
+
         {isAI && message.suggestions && message.suggestions.length > 0 && (
-          <ClarificationChips 
-            suggestions={message.suggestions} 
+          <ClarificationChips
+            suggestions={message.suggestions}
             onSuggestionClick={sendMessage}
           />
         )}
