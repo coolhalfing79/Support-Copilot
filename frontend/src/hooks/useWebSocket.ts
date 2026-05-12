@@ -150,14 +150,9 @@ export const useWebSocket = (sessionId: string | null) => {
 
   const sendMessage = (content: string) => {
     const msg = content.trim()
-    if (!msg) {
-      console.log('[WS] sendMessage: empty message, returning')
-      return
-    }
+    if (!msg) return
 
-    console.log('[WS] sendMessage: socket readyState =', globalSocket?.readyState, 'is OPEN =', globalSocket?.readyState === WebSocket.OPEN)
     if (globalSocket?.readyState === WebSocket.OPEN) {
-      console.log('📤 [WebSocket] Sending:', msg)
       const userMessage = {
         id: Date.now().toString(),
         role: 'user',

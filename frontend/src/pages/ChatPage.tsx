@@ -25,22 +25,13 @@ export const ChatPage = () => {
   useEffect(() => {
     if (lastMessage?.role === 'user') {
       if (lastUserMsgIdRef.current !== lastMessage.id) {
-        // New user message detected
-        console.log('[ChatPage] New user message detected:', lastMessage.id)
         lastUserMsgIdRef.current = lastMessage.id
         setIsWaitingForResponse(true)
       }
     } else if (lastMessage?.role === 'assistant' && lastMessage?.content && lastMessage.content.length > 0) {
-      // Assistant has responded with content
-      console.log('[ChatPage] Assistant responded with content, length:', lastMessage.content.length)
       setIsWaitingForResponse(false)
     }
   }, [lastMessage, messages.length])
-
-  // Debug: log indicator state
-  useEffect(() => {
-    console.log('[ChatPage] isWaitingForResponse:', isWaitingForResponse, 'lastRole:', lastMessage?.role, 'lastContentLen:', lastMessage?.content?.length ?? 0)
-  }, [isWaitingForResponse, lastMessage])
 
   // Initialize session
   useEffect(() => {
@@ -111,8 +102,8 @@ export const ChatPage = () => {
                 <MessageBubble key={msg.id} message={msg} />
               ))}
 
-              {/* Thinking indicator: shown while waiting for assistant response */}
-              {isWaitingForResponse && (
+              {/* Thinking indicator: shown while waiting for assistant response, hidden when content starts streaming */}
+              {isWaitingForResponse && !(lastMessage?.role === 'assistant' && lastMessage?.content && lastMessage.content.length > 0) && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}

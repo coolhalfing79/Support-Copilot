@@ -14,8 +14,8 @@ This guide lets anyone clone the repo and run the Person 1 backend foundation lo
 ## 1) Clone and move to project
 
 ```powershell
-git clone <your-repo-url> D:\SemiColon2026
-cd D:\SemiColon2026
+git clone <your-repo-url> C:\Users\shrey\Desktop\semi\Support-Copilot
+cd C:\Users\shrey\Desktop\semi\Support-Copilot
 ```
 
 ## 2) Start PostgreSQL + pgvector in Docker
@@ -42,14 +42,14 @@ If not ready, wait a few seconds and run again.
 ## 3) Apply DB schema (and optional seed)
 
 ```powershell
-Get-Content "D:\SemiColon2026\infra\scripts\init_db.sql" -Raw | docker exec -i copilot-pgvector psql -U postgres -d copilot
-Get-Content "D:\SemiColon2026\infra\scripts\seed_data.sql" -Raw | docker exec -i copilot-pgvector psql -U postgres -d copilot
+Get-Content "C:\Users\shrey\Desktop\semi\Support-Copilot\infra\scripts\init_db.sql" -Raw | docker exec -i copilot-pgvector psql -U postgres -d copilot
+Get-Content "C:\Users\shrey\Desktop\semi\Support-Copilot\infra\scripts\seed_data.sql" -Raw | docker exec -i copilot-pgvector psql -U postgres -d copilot
 ```
 
 ## 4) Create Python venv with 3.12
 
 ```powershell
-cd D:\SemiColon2026\backend
+cd C:\Users\shrey\Desktop\semi\Support-Copilot\backend
 Remove-Item -Recurse -Force .venv -ErrorAction SilentlyContinue
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -V
