@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS knowledge_sources (
     source_type VARCHAR(20) NOT NULL DEFAULT 'web_page' CHECK (source_type IN ('web_page', 'pdf', 'docx', 'markdown')),
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'indexed', 'error')),
     chunk_count INTEGER DEFAULT 0,
+    max_pages INTEGER DEFAULT 200,
     last_indexed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
