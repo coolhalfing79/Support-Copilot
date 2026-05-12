@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useUserStore } from '../store/userStore'
+import { useAuthStore } from '../store/authStore'
 import { WS_BASE_URL } from '../config/api'
 
 // Singleton state to survive React re-renders and StrictMode
@@ -44,8 +45,8 @@ export const useWebSocket = (sessionId: string | null) => {
     console.log('🌐 [WebSocket] Connecting to:', `${WS_BASE_URL}/${sessionId}`)
     globalSessionId = sessionId
     
-    // Add auth token placeholder for future security implementation
-    const token = 'demo-token-placeholder'
+    // Get real token from authStore
+    const token = useAuthStore.getState().token
     const url = `${WS_BASE_URL}/${sessionId}?token=${token}`
     
     try {
