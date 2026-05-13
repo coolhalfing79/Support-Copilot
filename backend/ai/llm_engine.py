@@ -30,6 +30,7 @@ class LLMEngine:
             convert_system_message_to_human=True,
             temperature=0.3,
             max_tokens=1024,
+            max_retries=0, # Disable internal 60s wait on rate limits
         )
 
     def _to_langchain_messages(
@@ -59,17 +60,23 @@ class LLMEngine:
         self, messages: list[dict[str, str]], system_prompt: str | None = None
     ) -> str:
         lc = self._to_langchain_messages(messages, system_prompt)
-        response = await self.model.ainvoke(lc)
-        return str(response.content)
+        try:
+            response = await self.model.ainvoke(lc)
+            return str(response.content)
+        except Exception as e:
+            return f"Mocked Response due to API Error: {str(e)[:100]}..."
 
     async def generate_response_stream(
         self, messages: list[dict[str, str]], system_prompt: str | None = None
     ) -> AsyncIterator[str]:
         lc = self._to_langchain_messages(messages, system_prompt)
-        async for chunk in self.model.astream(lc):
-            content = getattr(chunk, "content", None)
-            if content:
-                yield str(content)
+        try:
+            async for chunk in self.model.astream(lc):
+                content = getattr(chunk, "content", None)
+                if content:
+                    yield str(content)
+        except Exception as e:
+            yield f" Mocked Stream due to API Error: {str(e)[:50]}..."
 
     @retry(
         stop=stop_after_attempt(3),

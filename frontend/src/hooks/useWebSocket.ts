@@ -82,7 +82,7 @@ export const useWebSocket = (sessionId: string | null) => {
           
           case 'final':
             storeRef.current.setStreaming(false)
-            if (data.action || data.suggestions) {
+            if (data.action || data.suggestions || data.sources) {
                useUserStore.setState((state) => {
                  const newMessages = [...state.messages]
                  if (newMessages.length > 0) {
@@ -90,7 +90,8 @@ export const useWebSocket = (sessionId: string | null) => {
                    newMessages[lastIdx] = {
                      ...newMessages[lastIdx],
                      action: data.action,
-                     suggestions: data.suggestions
+                     suggestions: data.suggestions,
+                     sources: data.sources
                    }
                  }
                  return { messages: newMessages }
@@ -160,9 +161,13 @@ export const useWebSocket = (sessionId: string | null) => {
         timestamp: new Date().toISOString(),
       }
       storeRef.current.addMessage(userMessage as any)
+      
+      const { selectedSources } = useUserStore.getState()
+      
       globalSocket.send(JSON.stringify({ 
         type: 'message',
-        content: msg 
+        content: msg,
+        knowledge_sources: selectedSources.length > 0 ? selectedSources : undefined
       }))
     } else {
       console.error('🚫 [WebSocket] Cannot send. State:', globalSocket?.readyState ?? 'NULL')

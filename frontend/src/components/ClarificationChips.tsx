@@ -18,9 +18,9 @@ export const ClarificationChips = ({ suggestions, onSuggestionClick, disabled }:
           transition={{ delay: index * 0.1 }}
           onClick={() => onSuggestionClick(suggestion)}
           disabled={disabled}
-          className="px-3 py-1.5 rounded-full glass-panel text-[11px] font-medium text-white/70 hover:text-white hover:bg-white/10 transition-all border border-white/5 flex items-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-3 py-1.5 rounded-full bg-[#ffffff] text-[11px] font-medium text-[#525252] hover:text-[#161616] hover:bg-[#f4f4f4] transition-all border border-[#e0e0e0] shadow-sm flex items-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <MessageSquare className="w-3 h-3 text-nebula-blue group-hover:scale-110 transition-transform" />
+          <MessageSquare className="w-3 h-3 text-[#0f62fe] group-hover:scale-110 transition-transform" />
           {suggestion}
         </motion.button>
       ))}

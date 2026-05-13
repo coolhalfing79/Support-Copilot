@@ -43,18 +43,18 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
-    background: radial-gradient(circle at top right, #1e1b4b, #020617);
+    background: #f4f4f4;
     min-height: 100vh;
   }
 }
 
 /* Glassmorphism Utilities */
 .glass-panel {
-  @apply bg-white/5 backdrop-blur-lg border border-white/10;
+  @apply bg-white border border-[#e0e0e0] shadow-sm;
 }
 
 .glass-input {
-  @apply bg-white/5 backdrop-blur-md border border-white/10 focus:border-white/20 transition-all;
+  @apply bg-[#ffffff] border border-[#c6c6c6] focus:border-[#0f62fe] transition-all;
 }
 
 /* Custom Scrollbar */
@@ -67,9 +67,9 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-white/10 rounded-full;
+  @apply bg-black/10 rounded-full;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-white/20;
+  @apply bg-black/20;
 }

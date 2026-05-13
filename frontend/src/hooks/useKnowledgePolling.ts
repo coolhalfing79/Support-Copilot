@@ -3,7 +3,7 @@ import { useAdminStore } from '../store/adminStore'
 
 export const useKnowledgePolling = () => {
   const { knowledgeSources, loadKnowledgeSources } = useAdminStore()
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     // Check if any source is in a processing state

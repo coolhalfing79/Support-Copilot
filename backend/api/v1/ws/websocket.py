@@ -66,6 +66,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
             
             if client_message.get("type") == "message":
                 user_message = client_message.get("content", "").strip()
+                knowledge_sources = client_message.get("knowledge_sources", None)
                 
                 # Validation: Ensure message is not empty
                 if not user_message:
@@ -83,6 +84,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                             db=db,
                             session_id=session_id,
                             user_message=user_message,
+                            knowledge_source_ids=knowledge_sources,
                         ):
                             # Add timestamp if missing
                             if "timestamp" not in event:

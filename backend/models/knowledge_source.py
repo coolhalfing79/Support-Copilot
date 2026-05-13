@@ -28,6 +28,7 @@ class KnowledgeSource(TimestampedModel):
         index=True,
     )
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_pages: Mapped[int] = mapped_column(Integer, default=200, server_default='200', nullable=False)
     last_indexed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

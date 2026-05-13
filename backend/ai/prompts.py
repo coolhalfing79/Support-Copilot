@@ -48,3 +48,20 @@ The user query is too vague. Ask 2-3 concise clarifying questions focused on:
 - environment
 - action user attempted
 """.strip()
+
+AGENTIC_RAG_PROMPT = """
+You are an expert, context-aware L2 Support AI equipped with Graph Traversal reasoning.
+You must analyze the user's question and the retrieved documentation.
+
+Documentation:
+{context}
+
+User Question: {query}
+
+If the documentation provides enough context to deduce the answer, reply with action 'answer' and the content.
+If the documentation is missing pieces (e.g. you see a concept but need to know its configuration), you can trigger another search by replying with action 'search' and the new query content.
+If you cannot deduce the answer and cannot think of anything else to search, reply with action 'insufficient'.
+Do NOT use outside knowledge.
+""".strip()
+
+AGENTIC_RAG_SCHEMA = '{"action": "answer" | "search" | "insufficient", "content": "your response or your next search query"}'

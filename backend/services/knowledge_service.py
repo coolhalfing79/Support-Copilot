@@ -47,6 +47,7 @@ class KnowledgeService:
         url: str,
         title: str | None = None,
         source_type: str = "web_page",
+        max_pages: int = 200,
     ) -> KnowledgeSource:
         """Register a new knowledge source (status = pending)."""
         source = KnowledgeSource(
@@ -54,6 +55,7 @@ class KnowledgeService:
             title=title or url,
             source_type=source_type,
             status="pending",
+            max_pages=max_pages,
         )
         db.add(source)
         await db.flush()
@@ -114,19 +116,28 @@ class KnowledgeService:
 
                 # 1. Fetch content.
                 logger.info("Fetching content from %s", source.url)
-                content = await self.scraper.fetch_content(source.url)
-                if not content or len(content.strip()) < 50:
-                    raise ValueError("Fetched content is too short or empty")
+                if getattr(source, "source_type", None) == "web_page":
+                    pages = await self.scraper.crawl_website(source.url, max_pages=getattr(source, "max_pages", 200))
+                else:
+                    content = await self.scraper.fetch_content(source.url)
+                    pages = [content] if content and len(content.strip()) >= 50 else []
+
+                if not pages:
+                    raise ValueError("Fetched content is too short, empty, or crawler returned no valid pages")
 
                 # 2. Split into chunks.
-                chunks = self.text_splitter.split_text(content)
-                logger.info("Split into %d chunks", len(chunks))
+                chunks = []
+                for page_content in pages:
+                    chunks.extend(self.text_splitter.split_text(page_content))
+                
+                logger.info("Split into %d chunks across %d pages", len(chunks), len(pages))
 
                 # 3. Add to ChromaDB (embeddings generated internally).
                 chunk_count = await self.rag_engine.add_documents(
                     source_id=str(source_id),
                     source_title=source.title or source.url,
                     chunks=chunks,
+                    source_url=source.url,
                 )
 
                 # 4. Update source record.

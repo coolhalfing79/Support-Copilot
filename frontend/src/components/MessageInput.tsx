@@ -35,10 +35,8 @@ export const MessageInput = ({ onSendMessage, disabled }: MessageInputProps) => 
 
   return (
     <div className="relative group">
-      <div className="absolute inset-[-2px] bg-gradient-to-r from-nebula-blue/20 via-nebula-purple/20 to-nebula-pink/20 rounded-[22px] blur-md opacity-0 group-focus-within:opacity-100 transition-opacity duration-500" />
-      
-      <div className="relative glass-panel rounded-[20px] p-2 flex items-end gap-2 pr-4">
-        <div className="flex-1 min-h-[48px] max-h-[150px] flex items-center">
+      <div className="relative bg-[#ffffff] border border-[#e0e0e0] shadow-sm rounded-[20px] p-2 flex items-end gap-2 pr-4 focus-within:border-[#0f62fe] transition-all">
+        <div className="flex-1 relative">
           <textarea
             ref={textareaRef}
             value={content}
@@ -46,7 +44,7 @@ export const MessageInput = ({ onSendMessage, disabled }: MessageInputProps) => 
             onKeyDown={handleKeyDown}
             placeholder="Type your support request..."
             disabled={disabled}
-            className="w-full bg-transparent border-none focus:ring-0 text-white/90 placeholder:text-white/20 text-sm py-3 px-4 resize-none outline-none overflow-y-auto"
+            className="w-full bg-transparent border-none focus:ring-0 text-[#161616] placeholder:text-[#a8a8a8] text-sm py-3 px-4 resize-none outline-none overflow-y-auto max-h-[200px]"
             rows={1}
           />
         </div>
@@ -57,8 +55,8 @@ export const MessageInput = ({ onSendMessage, disabled }: MessageInputProps) => 
           className={cn(
             "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
             content.trim() && !disabled
-              ? "bg-gradient-to-br from-nebula-blue to-nebula-purple text-white shadow-lg shadow-nebula-blue/20 scale-100"
-              : "bg-white/5 text-white/10 scale-95 cursor-not-allowed"
+              ? "bg-[#0f62fe] text-white shadow-md shadow-[#0f62fe]/20 scale-100"
+              : "bg-[#e0e0e0] text-[#a8a8a8] scale-95 cursor-not-allowed"
           )}
         >
           {disabled ? (

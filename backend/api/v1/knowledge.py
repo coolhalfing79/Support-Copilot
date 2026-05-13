@@ -36,6 +36,7 @@ async def add_knowledge_source(
         url=body.url,
         title=body.title,
         source_type=body.source_type.value if hasattr(body.source_type, "value") else body.source_type,
+        max_pages=body.max_pages,
     )
     # Kick off ingestion in the background.
     background_tasks.add_task(knowledge_service.ingest_source, str(source.id))
