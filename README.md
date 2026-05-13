@@ -39,12 +39,27 @@ python scripts/create_tables.py
 uvicorn main:app --reload
 ```
 
+#### Backend `.env` Template
+```env
+DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/copilot"
+GEMINI_API_KEY="your-gemini-api-key"
+JIRA_URL="https://your-domain.atlassian.net"
+JIRA_EMAIL="your-email@example.com"
+JIRA_API_TOKEN="your-jira-api-token"
+```
+
 ### 3. Frontend Setup
 ```bash
 cd frontend
 npm install
 cp .env.example .env
 npm run dev
+```
+
+#### Frontend `.env` Template
+```env
+VITE_API_BASE_URL="http://localhost:8000/api/v1"
+VITE_WS_URL="ws://localhost:8000/api/v1/chat/ws"
 ```
 
 ---
