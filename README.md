@@ -85,7 +85,7 @@ If you prefer not to use `docker-compose` for the backing services, ensure the f
 2.  **Redis 7+**
     -   Default: `localhost:6379`
 3.  **ChromaDB**
-    -   Default: `localhost:8000` (or as configured in `CHROMA_HOST`)
+    -   Default: localhost:8001 (or as configured in CHROMA_PORT)
 
 ---
 
