@@ -8,10 +8,12 @@ Manages chat sessions and messages.  Orchestrates the full pipeline:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +31,7 @@ from schemas.chat import (
 )
 from services.confidence_service import ConfidenceService
 from services.ticket_service import TicketService
+from services.graph_service import generate_graph_for_query_compat
 
 logger = logging.getLogger(__name__)
 
@@ -299,8 +302,10 @@ class ChatService:
         user_message: str,
         knowledge_source_ids: list[str] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """Orchestrates the pipeline and yields chunks for streaming."""
-        
+        """Streaming version of message processing."""
+        # 0. Yield start event immediately
+        yield {"type": "start"}
+
         # 1. Ensure session exists
         session = await self.get_session(db, session_id)
         if not session:
@@ -309,9 +314,6 @@ class ChatService:
 
         # 2. Store user message
         await self._add_message(db, session_id, "user", user_message)
-
-        # Immediate yield for thinking bubble!
-        yield {"type": "start"}
 
         # 3. Extract history
         try:
@@ -330,12 +332,14 @@ class ChatService:
         if initial["action"] == "clarification":
             text = "I'd like to help, but I need a bit more information to give you an accurate answer."
             msg = await self._add_message(db, session_id, "assistant", text, confidence_score=initial["score"])
+            graph_data = await generate_graph_for_query_compat(user_message)
             yield {"type": "chunk", "content": text, "is_final": True}
             yield {
                 "type": "final",
                 "action": Action.clarification,
                 "suggestions": initial.get("follow_up_questions", []),
-                "message_id": str(msg.id)
+                "message_id": str(msg.id),
+                "graph": graph_data
             }
             return
 
@@ -344,91 +348,164 @@ class ChatService:
         if knowledge_source_ids:
             filters = {"source_id": {"$in": knowledge_source_ids}}
         search_results = await self.rag_engine.search(user_message, filters=filters)
+
         if not search_results:
-            resp = await self._escalate(db, session_id, user_message, history, "medium")
-            yield {"type": "chunk", "content": resp.response, "is_final": True}
+            # Create a message record for the "not found" response
+            not_found_text = "I'm sorry, I couldn't find any relevant documents in the knowledge base to answer your question."
+            msg = await self._add_message(db, session_id, "assistant", not_found_text)
+            
+            graph_data = await generate_graph_for_query_compat(user_message)
+            msg.metadata_ = {"graph": graph_data}
+            await db.flush()
+            
+            yield {"type": "chunk", "content": not_found_text, "is_final": True}
             yield {
                 "type": "final",
-                "action": Action.escalated,
-                "ticket": resp.ticket,
-                "message_id": resp.message_id
+                "action": "escalated",
+                "ticket": None,
+                "message_id": str(msg.id),
+                "graph": graph_data,
+                "suggestions": ["Raise a support ticket.", "Try searching for different terms."]
             }
             return
 
-        # 7. Post-retrieval confidence
-        post = await self.confidence_service.calculate_post_retrieval_confidence(
-            query=user_message,
-            retrieved_docs=search_results,
+        # 7. Stable RAG Response
+        full_response = ""
+        sources = []
+        async for update in self.rag_engine.generate_response(user_message, search_results):
+            if update["type"] == "sources":
+                sources = update["content"]
+            elif update["type"] == "token":
+                token = update["content"]
+                full_response += token
+                yield {"type": "chunk", "content": token}
+
+        # Add to database
+        msg = await self._add_message(
+            db, session_id, "assistant", full_response,
+            confidence_score=0.9,
+            sources=sources
         )
 
-        # 8. Attempt RAG if resolve
-        if post["action"] == "resolve":
-            full_response, sources = await self.rag_engine.generate_response(user_message, search_results)
-            
-            if "INSUFFICIENT_DOCUMENTATION" not in full_response:
-                # Regular RAG worked!
-                # To simulate streaming, just yield the whole chunk
-                yield {"type": "chunk", "content": full_response}
-                
-                msg = await self._add_message(
-                    db, session_id, "assistant", full_response,
-                    confidence_score=post["score"],
-                    sources=sources
-                )
-                yield {
-                    "type": "final",
-                    "action": Action.resolve,
-                    "sources": [SourceInfo(**s) for s in sources],
-                    "message_id": str(msg.id)
-                }
-                return
+        # Post-processing (Graph & Keys)
+        kp_prompt = (
+            "Extract 3 to 4 very short highlights (Key Points) from the following answer. "
+            f"Query: {user_message}\nAnswer: {full_response}"
+        )
+        kp_schema = '{"key_points": ["point 1", "point 2", "point 3"]}'
+        
+        graph_context = "\n\n".join([f"Source: {s.get('title')}\nContent: {s.get('url')}" for s in sources])
+        
+        graph_task = generate_graph_for_query_compat(user_message, graph_context)
+        kp_task = self.rag_engine.llm_engine.generate_structured_response(kp_prompt, kp_schema)
+        
+        # New: Generate dynamic suggestions
+        s_prompt = (
+            "Based on the assistant's answer below, generate 3 short and helpful follow-up questions a user might want to ask. "
+            "Return only the questions in a JSON list.\n\n"
+            f"Answer: {full_response[:1000]}"
+        )
+        s_schema = '{"suggestions": ["question 1", "question 2", "question 3"]}'
+        s_task = self.rag_engine.llm_engine.generate_structured_response(s_prompt, s_schema)
 
-        # 9. Fallback: Either post["action"] != "resolve" OR INSUFFICIENT_DOCUMENTATION
+        try:
+            graph_data, kp_structured, s_structured = await asyncio.gather(graph_task, kp_task, s_task)
+        except Exception as e:
+            logger.error(f"Error in post-processing: {e}")
+            graph_data = {"nodes": [], "edges": []}
+            kp_structured = {"key_points": []}
+            s_structured = {"suggestions": ["Tell me more.", "Can you elaborate?", "Show more details."]}
+        
+        # Check for "I don't know" sentiment to trigger escalation
+        is_unhelpful = any(phrase in full_response.lower() for phrase in [
+            "does not contain information", 
+            "no information found", 
+            "i don't have information",
+            "not mentioned in the context",
+            "apologize, but i couldn't find",
+            "could not find information",
+            "no mention of",
+            "unable to find",
+            "cannot answer",
+            "insufficient information",
+            "i'm sorry, but",
+            "i do not have",
+            "no information defining",
+            "no information regarding",
+            "there is no information",
+            "not mentioned in the documents",
+            "documents focus on",
+            "no information about"
+        ])
+
+        if is_unhelpful:
+            # Signal that escalation is AVAILABLE, but don't create the ticket yet
+            msg.metadata_ = {"graph": graph_data}
+            await db.flush()
+            
+            yield {
+                "type": "final",
+                "action": "escalated",
+                "ticket": None, 
+                "message_id": str(msg.id),
+                "graph": graph_data,
+                "suggestions": ["Raise a support ticket for human help.", "Try rephrasing your question."]
+            }
+            return
+        
+        # Save artifacts to DB metadata
+        msg.metadata_ = {
+            "graph": graph_data,
+            "key_points": kp_structured.get("key_points", [])
+        }
+        await db.flush()
+
+        yield {
+            "type": "final",
+            "action": "resolve",
+            "sources": [SourceInfo(**s) for s in sources],
+            "message_id": str(msg.id),
+            "graph": graph_data,
+            "suggestions": s_structured.get("suggestions", []),
+            "key_points": kp_structured.get("key_points", [])
+        }
+        return
+
+        # 9. Fallback: Base LLM answer
         fallback_prompt = (
-            "Answer the following technical support or programming question based on your general knowledge. "
-            "If you do not know the answer or are not highly confident, you MUST reply EXACTLY with 'I_DONT_KNOW'.\n\n"
+            "Answer the following support question based on your general knowledge. "
+            "If you are not highly confident, reply ONLY with 'I_DONT_KNOW'.\n\n"
             f"Question: {user_message}"
         )
-        fallback_response = await self.rag_engine.llm_engine.generate_response([{"role": "user", "content": fallback_prompt}])
         
-        if "I_DONT_KNOW" in fallback_response or "Mocked Response" in fallback_response:
-            # Base LLM also doesn't know -> Escalate to ticket
+        fallback_response = ""
+        async for token in self.rag_engine.llm_engine.generate_response_stream([{"role": "user", "content": fallback_prompt}]):
+            if "I_DONT_KNOW" in token:
+                break
+            fallback_response += token
+            yield {"type": "chunk", "content": token}
+        
+        if "I_DONT_KNOW" in fallback_response or not fallback_response.strip():
+            # Escalate
             resp = await self._escalate(db, session_id, user_message, history, "high")
-            yield {"type": "chunk", "content": resp.response, "is_final": True}
+            yield {"type": "chunk", "content": resp.response}
             yield {
                 "type": "final",
                 "action": Action.escalated,
                 "ticket": resp.ticket,
-                "message_id": resp.message_id
+                "message_id": resp.message_id,
             }
             return
-        else:
-            # Base model knows! Add to KC
-            import time
-            import uuid
-            new_source_id = f"fallback_{int(time.time())}"
-            await self.rag_engine.add_documents(new_source_id, f"Auto-generated answer for: {user_message}", [fallback_response])
-            
-            yield {"type": "chunk", "content": fallback_response}
-            
-            fb_sources = [{
-                "source_id": new_source_id,
-                "title": "AI Fallback Knowledge",
-                "chunk_excerpt": fallback_response[:200]
-            }]
-            
-            msg = await self._add_message(
-                db, session_id, "assistant", fallback_response,
-                confidence_score=0.8,
-                sources=fb_sources
-            )
-            yield {
-                "type": "final",
-                "action": Action.resolve,
-                "sources": [SourceInfo(**s) for s in fb_sources],
-                "message_id": str(msg.id)
-            }
-            return
+
+        # Success fallback
+        msg = await self._add_message(db, session_id, "assistant", fallback_response, confidence_score=0.7)
+        yield {
+            "type": "final",
+            "action": Action.resolve,
+            "message_id": str(msg.id),
+            "suggestions": ["How do I contact support?", "What is the escalation path?"],
+        }
+
 
     # ------------------------------------------------------------------
     # Escalation helper
@@ -481,3 +558,40 @@ class ChatService:
                 ),
             ),
         )
+
+    async def list_all_graphs(self, db: AsyncSession) -> list[dict[str, Any]]:
+        """Fetch all messages that contain a knowledge graph in their metadata."""
+        # We need the user query (previous message) for each graph message
+        stmt = (
+            select(Message, Session.title)
+            .join(Session, Message.session_id == Session.id)
+            .where(Message.metadata_.is_not(None))
+            .order_by(Message.created_at.desc())
+        )
+        result = await db.execute(stmt)
+        items = result.all()
+        
+        graphs = []
+        for msg, session_title in items:
+            if msg.metadata_ and "graph" in msg.metadata_:
+                # Try to find the user query for this graph
+                query_stmt = (
+                    select(Message.content)
+                    .where(Message.session_id == msg.session_id)
+                    .where(Message.role == "user")
+                    .where(Message.created_at < msg.created_at)
+                    .order_by(Message.created_at.desc())
+                    .limit(1)
+                )
+                query_res = await db.execute(query_stmt)
+                user_query = query_res.scalar_one_or_none() or "Archived Query"
+                
+                graphs.append({
+                    "message_id": str(msg.id),
+                    "session_id": str(msg.session_id),
+                    "session_title": session_title,
+                    "query": user_query,
+                    "graph": msg.metadata_["graph"],
+                    "created_at": msg.created_at.isoformat()
+                })
+        return graphs

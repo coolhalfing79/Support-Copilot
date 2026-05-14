@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import logging
 from api.router import api_router
 from config.database import engine
 from config.settings import get_settings
@@ -12,11 +13,19 @@ from api.v1.ws.websocket import router as ws_router
 from utils.logging_config import setup_logging
 
 setup_logging()
+logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    yield
-    await engine.dispose()
+    try:
+        logger.info("🚀 Starting Copilot Backend...")
+        yield
+    except Exception as e:
+        logger.critical(f"❌ CRITICAL STARTUP ERROR: {e}", exc_info=True)
+        raise
+    finally:
+        logger.info("👋 Shutting down Copilot Backend...")
+        await engine.dispose()
 
 
 settings = get_settings()

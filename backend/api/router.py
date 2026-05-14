@@ -5,6 +5,7 @@ from api.v1.analytics import router as analytics_router
 from api.v1.chat import router as chat_router
 from api.v1.knowledge import router as knowledge_router
 from api.v1.tickets import router as tickets_router
+from api.v1.feedback import router as feedback_router
 
 api_router = APIRouter()
 
@@ -13,3 +14,4 @@ api_router.include_router(chat_router, prefix="/chat", tags=["chat"])
 api_router.include_router(knowledge_router, prefix="/knowledge", tags=["knowledge"])
 api_router.include_router(tickets_router, prefix="/tickets", tags=["tickets"])
 api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
+api_router.include_router(feedback_router, prefix="/feedback", tags=["feedback"])

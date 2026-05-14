@@ -96,3 +96,18 @@ async def get_session(session_id: UUID, db: DbSession) -> SessionDetailResponse:
         updated_at=session.updated_at,
         messages=[MessageResponse.model_validate(m) for m in session.messages],
     )
+
+
+@router.get("/graphs")
+async def list_graphs(db: DbSession) -> list[dict[str, Any]]:
+    """List all Knowledge Graphs archived in message metadata."""
+    chat_service = get_chat_service()
+    return await chat_service.list_all_graphs(db)
+
+
+@router.post("/suggestions")
+async def get_suggestions(source_ids: list[str] | None = None) -> list[str]:
+    """Get AI-suggested questions for selected sources."""
+    from ai.rag_pipeline import get_rag_engine
+    rag = get_rag_engine()
+    return await rag.get_suggested_questions(source_ids)

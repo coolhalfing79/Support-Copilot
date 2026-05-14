@@ -9,6 +9,8 @@ from models.session import Session
 from models.ticket import Ticket
 from models.user import User
 
+from models.feedback import Feedback
+
 __all__ = [
     "Base",
     "User",
@@ -18,4 +20,5 @@ __all__ = [
     "KnowledgeSource",
     "KnowledgeChunk",
     "Metric",
+    "Feedback",
 ]

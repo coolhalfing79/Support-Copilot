@@ -18,6 +18,7 @@ from ai.llm_engine import LLMEngine
 from ai.prompts import TICKET_CREATION_PROMPT
 from models.ticket import Ticket
 from models.session import Session
+from models.message import Message
 from services.jira_client import JiraClient
 
 logger = logging.getLogger(__name__)
@@ -130,12 +131,27 @@ class TicketService:
         conversation_history: list[str] | None = None,
         severity: str = "medium",
     ) -> Ticket:
-        """Create a ticket from manual admin escalation."""
+        """Create a ticket from manual admin escalation with full context."""
+        if not query or not conversation_history:
+            # Fetch last 5 messages for context
+            stmt = select(Message).where(Message.session_id == session_id).order_by(Message.created_at.desc()).limit(10)
+            result = await db.execute(stmt)
+            messages = list(result.scalars().all())
+            messages.reverse()
+            
+            if not conversation_history:
+                conversation_history = [f"{m.role}: {m.content}" for m in messages]
+            
+            if not query:
+                # Use the last user message as the query
+                user_msgs = [m.content for m in messages if m.role == "user"]
+                query = user_msgs[-1] if user_msgs else "Manual escalation requested by user"
+
         return await self.create_ticket_from_chat(
             db=db,
             session_id=session_id,
-            query=query or "Manual escalation",
-            conversation_history=conversation_history or [],
+            query=query,
+            conversation_history=conversation_history,
             severity=severity,
         )
 

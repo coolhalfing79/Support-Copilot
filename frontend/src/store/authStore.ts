@@ -22,9 +22,7 @@ interface AuthState {
   logout: () => void
 }
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-})
+import apiClient from '../api/client'
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -35,7 +33,7 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (email, password) => {
         try {
-          const response = await api.post('/auth/login', { email, password })
+          const response = await apiClient.post('/auth/login', { email, password })
           const { access_token } = response.data
           
           // In a real app, you might decode the JWT or fetch user details

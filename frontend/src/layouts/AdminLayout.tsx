@@ -1,6 +1,6 @@
 import { ReactNode, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Database, Ticket, ArrowLeft, Shield } from 'lucide-react'
+import { LayoutDashboard, Database, Ticket, ArrowLeft, Shield, MessageSquare } from 'lucide-react'
 import { useAdminStore } from '../store/adminStore'
 import { useKnowledgePolling } from '../hooks/useKnowledgePolling'
 
@@ -10,7 +10,7 @@ interface AdminLayoutProps {
 
 export const AdminLayout = ({ children }: AdminLayoutProps) => {
   const location = useLocation()
-  const { loadMetrics, loadKnowledgeSources, loadTickets } = useAdminStore()
+  const { loadMetrics, loadKnowledgeSources, loadTickets, loadFeedbacks } = useAdminStore()
   
   // Start polling for knowledge status
   useKnowledgePolling()
@@ -20,12 +20,14 @@ export const AdminLayout = ({ children }: AdminLayoutProps) => {
     loadMetrics()
     loadKnowledgeSources()
     loadTickets()
-  }, [loadMetrics, loadKnowledgeSources, loadTickets])
+    loadFeedbacks()
+  }, [loadMetrics, loadKnowledgeSources, loadTickets, loadFeedbacks])
 
   const navItems = [
     { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/admin/knowledge', label: 'Knowledge Base', icon: Database },
     { path: '/admin/tickets', label: 'Tickets', icon: Ticket },
+    { path: '/admin/feedback', label: 'Feedback', icon: MessageSquare },
   ]
 
   return (

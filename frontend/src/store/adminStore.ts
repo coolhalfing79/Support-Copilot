@@ -32,6 +32,15 @@ export interface MetricOverview {
   total_sessions: number
 }
 
+export interface Feedback {
+  id: string
+  rating: number
+  comment: string
+  category: string
+  user_id?: string
+  created_at: string
+}
+
 interface AdminState {
   // Knowledge state
   knowledgeSources: KnowledgeSource[]
@@ -44,6 +53,9 @@ interface AdminState {
   filterSeverity: string | null
   selectedTicket: Ticket | null
   
+  // Feedback state
+  feedbacks: Feedback[]
+  
   // Analytics state
   metrics: MetricOverview | null
   isLoading: boolean
@@ -55,6 +67,7 @@ interface AdminState {
   deleteKnowledgeSource: (id: string) => Promise<void>
   reindexSource: (id: string) => Promise<void>
   loadTickets: () => Promise<void>
+  loadFeedbacks: () => Promise<void>
   setFilterStatus: (status: string | null) => void
   setFilterSeverity: (severity: string | null) => void
   openTicketDetail: (ticket: Ticket) => void
@@ -63,9 +76,7 @@ interface AdminState {
   clearError: () => void
 }
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-})
+import apiClient from '../api/client'
 
 export const useAdminStore = create<AdminState>((set, get) => ({
   // Initial state
@@ -76,6 +87,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   filterStatus: null,
   filterSeverity: null,
   selectedTicket: null,
+  feedbacks: [],
   metrics: null,
   isLoading: false,
   error: null,
@@ -84,7 +96,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   loadKnowledgeSources: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await api.get('/knowledge/sources')
+      const response = await apiClient.get('/knowledge/sources')
       set({ knowledgeSources: response.data.sources || response.data, isLoading: false })
     } catch (err: any) {
       set({ error: err.response?.data?.message || 'Failed to load sources', isLoading: false })
@@ -94,7 +106,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   addKnowledgeSource: async (url, title) => {
     set({ isAddingSource: true, error: null })
     try {
-      const response = await api.post('/knowledge/sources', { url, title })
+      const response = await apiClient.post('/knowledge/sources', { url, title })
       set((state) => ({
         knowledgeSources: [response.data, ...state.knowledgeSources],
         isAddingSource: false,
@@ -106,7 +118,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   
   deleteKnowledgeSource: async (id) => {
     try {
-      await api.delete(`/knowledge/sources/${id}`)
+      await apiClient.delete(`/knowledge/sources/${id}`)
       set((state) => ({
         knowledgeSources: state.knowledgeSources.filter((s) => s.id !== id),
       }))
@@ -118,7 +130,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   reindexSource: async (id) => {
     set({ isRefreshing: id })
     try {
-      await api.post(`/knowledge/sources/${id}/reindex`)
+      await apiClient.post(`/knowledge/sources/${id}/reindex`)
       set((state) => ({
         knowledgeSources: state.knowledgeSources.map((s) =>
           s.id === id ? { ...s, status: 'processing' as const } : s
@@ -139,7 +151,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       if (filterStatus) params.status = filterStatus
       if (filterSeverity) params.severity = filterSeverity
       
-      const response = await api.get('/tickets', { params })
+      const response = await apiClient.get('/tickets', { params })
       set({ tickets: response.data.tickets || response.data, isLoading: false })
     } catch (err: any) {
       set({ error: err.response?.data?.message || 'Failed to load tickets', isLoading: false })
@@ -158,12 +170,25 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   
   openTicketDetail: (ticket) => set({ selectedTicket: ticket }),
   closeTicketDetail: () => set({ selectedTicket: null }),
+
+  loadFeedbacks: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const response = await apiClient.get('/feedback')
+      // Ensure we handle both direct array response and wrapped object
+      const data = Array.isArray(response.data) ? response.data : (response.data.feedbacks || [])
+      set({ feedbacks: data, isLoading: false })
+    } catch (err: any) {
+      const errorDetail = err.response?.data?.error?.message || err.response?.data?.detail || err.message || 'Failed to load feedbacks'
+      set({ error: errorDetail, isLoading: false })
+    }
+  },
   
   // Analytics actions
   loadMetrics: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await api.get('/analytics/overview')
+      const response = await apiClient.get('/analytics/overview')
       // Map response to MetricOverview
       const data = response.data.metrics || response.data
       set({ metrics: data, isLoading: false })

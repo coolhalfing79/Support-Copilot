@@ -25,6 +25,7 @@ def register_error_handlers(app: FastAPI):
                     "type": "http_error",
                 }
             },
+            headers={"Access-Control-Allow-Origin": "*"}
         )
     
     @app.exception_handler(RequestValidationError)
@@ -40,6 +41,7 @@ def register_error_handlers(app: FastAPI):
                     "type": "validation_error",
                 }
             },
+            headers={"Access-Control-Allow-Origin": "*"}
         )
     
     @app.exception_handler(ValidationError)
@@ -55,6 +57,7 @@ def register_error_handlers(app: FastAPI):
                     "type": "validation_error",
                 }
             },
+            headers={"Access-Control-Allow-Origin": "*"}
         )
     
     @app.exception_handler(SQLAlchemyError)
@@ -69,6 +72,7 @@ def register_error_handlers(app: FastAPI):
                     "type": "database_error",
                 }
             },
+            headers={"Access-Control-Allow-Origin": "*"}
         )
     
     @app.exception_handler(Exception)
@@ -83,4 +87,5 @@ def register_error_handlers(app: FastAPI):
                     "type": "internal_error",
                 }
             },
+            headers={"Access-Control-Allow-Origin": "*"}
         )

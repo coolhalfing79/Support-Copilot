@@ -12,6 +12,7 @@ export const useWebSocket = (sessionId: string | null) => {
   const { addMessage, updateLastMessage, setStreaming, setConnected } = useUserStore()
   const reconnectTimeoutRef = useRef<number | null>(null)
   const isMounted = useRef(true)
+  const lastSentQueryRef = useRef<string | null>(null)
   
   // Use a ref to keep track of the current store functions (avoids stale closures)
   const storeRef = useRef({ addMessage, updateLastMessage, setStreaming, setConnected })
@@ -63,7 +64,7 @@ export const useWebSocket = (sessionId: string | null) => {
       ws.onmessage = (event) => {
         if (!isMounted.current) return
         const data = JSON.parse(event.data)
-        console.log('📥 [WebSocket] Message:', data.type)
+        console.log('📥 [WebSocket] Message:', data.type, data.action ? `Action: ${data.action}` : '')
         
         switch (data.type) {
           case 'start':
@@ -82,7 +83,7 @@ export const useWebSocket = (sessionId: string | null) => {
           
           case 'final':
             storeRef.current.setStreaming(false)
-            if (data.action || data.suggestions || data.sources) {
+            if (data.action || data.suggestions || data.sources || data.graph || data.key_points) {
                useUserStore.setState((state) => {
                  const newMessages = [...state.messages]
                  if (newMessages.length > 0) {
@@ -91,7 +92,16 @@ export const useWebSocket = (sessionId: string | null) => {
                      ...newMessages[lastIdx],
                      action: data.action,
                      suggestions: data.suggestions,
-                     sources: data.sources
+                     sources: data.sources,
+                     graph: data.graph,
+                     key_points: data.key_points || []
+                   }
+                 }
+                 if (data.graph) {
+                   return { 
+                     messages: newMessages, 
+                     currentGraph: data.graph,
+                     currentGraphQuery: lastSentQueryRef.current 
                    }
                  }
                  return { messages: newMessages }
@@ -154,6 +164,7 @@ export const useWebSocket = (sessionId: string | null) => {
 
     if (globalSocket?.readyState === WebSocket.OPEN) {
       console.log('📤 [WebSocket] Sending:', msg)
+      lastSentQueryRef.current = msg
       const userMessage = {
         id: Date.now().toString(),
         role: 'user',

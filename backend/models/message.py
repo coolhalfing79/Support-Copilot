@@ -29,5 +29,8 @@ class Message(UUIDCreatedModel):
     sources: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(
         JSONB, nullable=True
     )
+    metadata_: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata", JSONB, nullable=True
+    )
 
     session: Mapped["Session"] = relationship("Session", back_populates="messages")

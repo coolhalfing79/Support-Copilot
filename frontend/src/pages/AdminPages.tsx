@@ -18,15 +18,21 @@ import {
   Search, 
   ChevronRight, 
   Inbox,
-  ShieldAlert
+  ShieldAlert,
+  Star
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { StatusBadge } from '../components/StatusBadge'
 import { TicketDetail } from '../components/TicketDetail'
 
 export const AdminDashboard = () => {
-  const { metrics, isLoading, error } = useAdminStore()
+  const { metrics, isLoading, error, loadMetrics } = useAdminStore()
+
+  useEffect(() => {
+    loadMetrics()
+  }, [loadMetrics])
+
 
   if (isLoading && !metrics) {
     return (
@@ -306,6 +312,12 @@ const SourceList = () => {
 
 // --- Main Page Component ---
 export const KnowledgePage = () => {
+  const { loadKnowledgeSources } = useAdminStore()
+
+  useEffect(() => {
+    loadKnowledgeSources()
+  }, [loadKnowledgeSources])
+
   return (
     <div className="space-y-12">
       <div className="flex flex-col gap-1">
@@ -456,7 +468,11 @@ const TicketTable = () => {
 
 // --- Main Page Component ---
 export const TicketsPage = () => {
-  const { selectedTicket, closeTicketDetail } = useAdminStore()
+  const { selectedTicket, closeTicketDetail, loadTickets } = useAdminStore()
+
+  useEffect(() => {
+    loadTickets()
+  }, [loadTickets])
 
   return (
     <div className="space-y-8">
@@ -478,6 +494,109 @@ export const TicketsPage = () => {
           />
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+// --- Sub-component: FeedbackTable ---
+const FeedbackTable = () => {
+  const { feedbacks, isLoading } = useAdminStore()
+
+  if (isLoading && feedbacks.length === 0) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="h-16 rounded-xl bg-[#262626] border border-[#393939] animate-pulse" />
+        ))}
+      </div>
+    )
+  }
+
+  if (feedbacks.length === 0) {
+    return (
+      <div className="p-20 rounded-2xl bg-[#262626] border border-[#393939] flex flex-col items-center justify-center text-center gap-4">
+        <div className="w-12 h-12 rounded-xl bg-[#161616] border border-[#393939] flex items-center justify-center">
+          <MessageSquare className="w-6 h-6 text-[#8d8d8d]" />
+        </div>
+        <div className="space-y-1">
+          <h3 className="text-[#f4f4f4] font-medium">No Feedback Yet</h3>
+          <p className="text-[#c6c6c6] text-sm max-w-xs">User submissions will appear here once they start providing feedback.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border border-[#393939] overflow-hidden">
+      <table className="w-full text-left border-collapse">
+        <thead className="bg-[#262626]">
+          <tr>
+            <th className="px-6 py-4 text-[10px] uppercase tracking-widest font-bold text-[#c6c6c6]">User / Date</th>
+            <th className="px-6 py-4 text-[10px] uppercase tracking-widest font-bold text-[#c6c6c6]">Rating</th>
+            <th className="px-6 py-4 text-[10px] uppercase tracking-widest font-bold text-[#c6c6c6]">Category</th>
+            <th className="px-6 py-4 text-[10px] uppercase tracking-widest font-bold text-[#c6c6c6]">Comment</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[#393939]">
+          {feedbacks.map((fb, index) => (
+            <tr key={`${fb.id}-${index}`} className="hover:bg-[#393939] transition-colors">
+              <td className="px-6 py-4">
+                <div className="flex flex-col gap-0.5">
+                   <span className="text-xs font-bold text-[#f4f4f4]">
+                     {fb.user_id ? "Authenticated User" : "Anonymous"}
+                   </span>
+                   <span className="text-[10px] text-[#8d8d8d] uppercase tracking-widest font-bold">
+                     {new Date(fb.created_at).toLocaleDateString()}
+                   </span>
+                </div>
+              </td>
+              <td className="px-6 py-4">
+                <div className="flex items-center gap-1">
+                  {[...Array(5)].map((_, i) => (
+                    <Star 
+                      key={i} 
+                      className={`w-3 h-3 ${i < fb.rating ? 'fill-amber-400 text-amber-400' : 'text-[#393939]'}`} 
+                    />
+                  ))}
+                </div>
+              </td>
+              <td className="px-6 py-4">
+                 <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border
+                  ${fb.category === 'bug' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 
+                    fb.category === 'feature' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                    'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}
+                 >
+                   {fb.category}
+                 </span>
+              </td>
+              <td className="px-6 py-4">
+                 <p className="text-xs text-[#c6c6c6] max-w-md line-clamp-2">
+                   {fb.comment}
+                 </p>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+export const AdminFeedbackPage = () => {
+  const { feedbacks, isLoading, error } = useAdminStore()
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col gap-1">
+        <h2 className="text-3xl font-bold tracking-tight text-[#f4f4f4]">
+          User Sentiment
+        </h2>
+        <p className="text-sm text-[#c6c6c6] font-medium">Monitor user ratings and detailed feedback submissions.</p>
+      </div>
+
+      <div className="space-y-6">
+        <FeedbackTable />
+      </div>
     </div>
   )
 }

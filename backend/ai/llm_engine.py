@@ -64,7 +64,10 @@ class LLMEngine:
             response = await self.model.ainvoke(lc)
             return str(response.content)
         except Exception as e:
-            return f"Mocked Response due to API Error: {str(e)[:100]}..."
+            error_msg = str(e)
+            if "429" in error_msg or "ResourceExhausted" in error_msg:
+                return "AI_RATE_LIMIT_EXCEEDED: The AI is currently at its capacity limit. Please wait 60 seconds and try again."
+            return f"Error: {error_msg[:100]}..."
 
     async def generate_response_stream(
         self, messages: list[dict[str, str]], system_prompt: str | None = None
@@ -76,7 +79,11 @@ class LLMEngine:
                 if content:
                     yield str(content)
         except Exception as e:
-            yield f" Mocked Stream due to API Error: {str(e)[:50]}..."
+            error_msg = str(e)
+            if "429" in error_msg or "ResourceExhausted" in error_msg:
+                yield "\n\n⚠️ **AI Rate Limit Reached:** You've made too many requests. Please wait about 60 seconds and try again."
+            else:
+                yield f" [Stream Error: {error_msg[:30]}...]"
 
     @retry(
         stop=stop_after_attempt(3),
