@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+import uuid
 from unittest.mock import AsyncMock, patch, MagicMock
 from ai.rag_pipeline import RAGEngine
 from models.knowledge_chunk import KnowledgeChunk
@@ -40,22 +41,22 @@ def _make_rag_test_instance():
     rag.embedding_engine = _FakeEmbeddingEngine()
     rag.llm_engine = _FakeLLMEngine()
     return rag
-
 @pytest.mark.asyncio
-async def test_add_documents_batching():
+async def test_add_documents_single_call():
     rag = _make_rag_test_instance()
-    rag.batch_size = 2 
     db = AsyncMock(spec=AsyncSession)
-    
+
     chunks = [f"Unique chunk {i}: This is a long enough chunk to pass the minimum length filter of fifty characters." for i in range(5)]
-    
+
     added = await rag.add_documents(db, "sid", "title", chunks, source_url="http://url")
-    
+
     assert added == 5
-    assert db.add_all.call_count == 3 
+    # Now single call because manual batching was removed
+    assert db.add_all.call_count == 1
     call_args_list = db.add_all.call_args_list
-    assert len(call_args_list[0][0][0]) == 2
+    assert len(call_args_list[0][0][0]) == 5
     assert isinstance(call_args_list[0][0][0][0], KnowledgeChunk)
+
 
 @pytest.mark.asyncio
 async def test_search_similarity():
@@ -184,6 +185,29 @@ async def test_agentic_rag_insufficient():
     
     content, sources = await rag.generate_response(db, "query", [])
     assert content == "INSUFFICIENT_DOCUMENTATION"
+
+@pytest.mark.asyncio
+async def test_search_filters_robust():
+    rag = _make_rag_test_instance()
+    db = AsyncMock(spec=AsyncSession)
+    
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    db.execute = AsyncMock(return_value=mock_result)
+    
+    # Test UUID conversion and $in filter
+    sid1 = str(uuid.uuid4())
+    sid2 = str(uuid.uuid4())
+    filters = {
+        "source_id": {"$in": [sid1, sid2]},
+        "category": "technical"
+    }
+    
+    await rag.search(db, "query", filters=filters)
+    
+    # Verify db.execute was called with a statement containing these conditions
+    # (Checking the exact SQL/stmt structure is complex with mocks, but we ensure no crash)
+    assert db.execute.called
 
 @pytest.mark.asyncio
 async def test_add_documents_strips_null_bytes():

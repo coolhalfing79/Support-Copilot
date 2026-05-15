@@ -69,10 +69,18 @@ async def test_knowledge_sources_post_not_501() -> None:
 @pytest.mark.asyncio
 async def test_tickets_list_not_501() -> None:
     """GET /tickets should no longer return 501."""
+    from config.database import get_db
+    mock_db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = []
+    mock_db.execute.return_value = mock_result
+    app.dependency_overrides[get_db] = lambda: mock_db
+    
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         r = await client.get(TICKETS_URL)
         assert r.status_code != 501
+    app.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio

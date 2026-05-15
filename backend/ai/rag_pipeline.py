@@ -130,10 +130,6 @@ class RAGEngine:
             
         embeddings = await self.embedding_engine.embed_documents(clean_chunks)
         
-        # We don't strictly need the hash-based IDs anymore as Postgres handles PKs,
-        # but we use them or just rely on autoincrement UUIDs.
-        # The model uses UUIDCreatedModel.
-        
         new_chunks = []
         for i in range(len(clean_chunks)):
             new_chunks.append(
@@ -146,9 +142,8 @@ class RAGEngine:
                 )
             )
 
-        # Batch insert
-        for i in range(0, len(new_chunks), self.batch_size):
-            db.add_all(new_chunks[i : i + self.batch_size])
+        # Add to session — SQLAlchemy handles batching internally during flush/commit
+        db.add_all(new_chunks)
         
         await db.flush()
         logger.info("Indexed %d chunks for source '%s' into pgvector", len(new_chunks), source_title)
@@ -179,14 +174,39 @@ class RAGEngine:
             .limit(k)
         )
         
-        # Apply filters (basic translation of ChromaDB-style filters)
+        # Robust filter translation (compatible with previous ChromaDB-style filters)
         if filters:
-            if "source_id" in filters:
-                val = filters["source_id"]
-                if isinstance(val, dict) and "$in" in val:
-                    stmt = stmt.where(KnowledgeChunk.source_id.in_(val["$in"]))
+            from uuid import UUID
+            conditions = []
+            for key, val in filters.items():
+                if key == "source_id":
+                    if isinstance(val, dict) and "$in" in val:
+                        # Convert to UUID objects for asyncpg strict typing
+                        ids = []
+                        for i in val["$in"]:
+                            try:
+                                ids.append(UUID(str(i)))
+                            except (ValueError, TypeError):
+                                logger.warning("Invalid UUID in source_id $in filter: %s", i)
+                        if ids:
+                            conditions.append(KnowledgeChunk.source_id.in_(ids))
+                    else:
+                        try:
+                            conditions.append(KnowledgeChunk.source_id == UUID(str(val)))
+                        except (ValueError, TypeError):
+                            logger.warning("Invalid UUID in source_id filter: %s", val)
                 else:
-                    stmt = stmt.where(KnowledgeChunk.source_id == val)
+                    # Arbitrary metadata filter targeting the JSONB column
+                    if isinstance(val, dict):
+                        if "$in" in val:
+                            conditions.append(KnowledgeChunk.chunk_metadata[key].astext.in_([str(v) for v in val["$in"]]))
+                        elif "$eq" in val:
+                            conditions.append(KnowledgeChunk.chunk_metadata[key].astext == str(val["$eq"]))
+                    else:
+                        conditions.append(KnowledgeChunk.chunk_metadata[key].astext == str(val))
+            
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
 
         result = await db.execute(stmt)
         rows: list[dict[str, Any]] = []
