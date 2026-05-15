@@ -305,7 +305,7 @@ Runs as FastAPI BackgroundTask (separate DB session):
 
 - Uses FastEmbed with `BAAI/bge-small-en-v1.5` model
 - Runs entirely on-device via ONNX Runtime — no API keys, no rate limits
-- Embedding dimension: 384 (stored as Vector(768) in DB for future compatibility)
+- Embedding dimension: 384 (FastEmbed BAAI/bge-small-en-v1.5)
 - Methods: `embed_query(text)`, `embed_documents(documents[])`
 
 ### RAG Engine (`ai/rag_pipeline.py`)

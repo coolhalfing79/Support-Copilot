@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     source_id UUID NOT NULL REFERENCES knowledge_sources(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
     content TEXT NOT NULL,
-    embedding_vector VECTOR(768),
+    embedding_vector VECTOR(384),
     chunk_metadata JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_knowledge_chunks_source_chunk UNIQUE (source_id, chunk_index)

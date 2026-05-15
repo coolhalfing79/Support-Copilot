@@ -660,25 +660,22 @@ class TestKnowledgeService:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_delete_source_cleans_chromadb(self):
-        """delete_source should attempt to clean ChromaDB."""
+    async def test_delete_source_success(self):
+        """delete_source should attempt to delete from the DB (CASCADE handles chunks)."""
         mock_rag = AsyncMock()
-        mock_rag.collection = MagicMock()
-        mock_rag.collection.delete = MagicMock()
-
+    
         from services.knowledge_service import KnowledgeService
         service = KnowledgeService(rag_engine=mock_rag)
-
+    
         mock_source = MagicMock()
         mock_source.id = uuid.uuid4()
-
+    
         mock_db = AsyncMock()
         mock_db.get = AsyncMock(return_value=mock_source)
         mock_db.delete = AsyncMock()
-
+    
         result = await service.delete_source(mock_db, str(mock_source.id))
         assert result is True
-        mock_rag.collection.delete.assert_called_once()
         mock_db.delete.assert_called_once_with(mock_source)
 
 

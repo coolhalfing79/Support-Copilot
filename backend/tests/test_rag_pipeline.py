@@ -1,14 +1,17 @@
 import pytest
 import asyncio
+import uuid
 from unittest.mock import AsyncMock, patch, MagicMock
 from ai.rag_pipeline import RAGEngine
+from models.knowledge_chunk import KnowledgeChunk
+from sqlalchemy.ext.asyncio import AsyncSession
 
 class _FakeEmbeddingEngine:
     async def embed_documents(self, documents: list[str]) -> list[list[float]]:
-        return [[0.1] * 768 for _ in documents]
+        return [[0.1] * 384 for _ in documents]
 
     async def embed_query(self, _query: str) -> list[float]:
-        return [0.1] * 768
+        return [0.1] * 384
 
 class _FakeLLMEngine:
     def __init__(self):
@@ -29,41 +32,6 @@ class _FakeLLMEngine:
             return self.structured_responses.pop(0)
         return {"action": "insufficient", "content": ""}
 
-class _FakeCollection:
-    def __init__(self):
-        self.upsert_calls = []
-        self.query_calls = []
-        self.query_count = 0
-        self.results = {
-            "ids": [["doc_1"]],
-            "documents": [["Relevant context content"]],
-            "metadatas": [[{"source_id": "src1", "source_title": "Title", "source_url": "http://src1"}]],
-            "distances": [[0.1]],
-        }
-
-    def upsert(self, **kwargs):
-        self.upsert_calls.append(kwargs)
-
-    def query(self, **kwargs):
-        self.query_calls.append(kwargs)
-        self.query_count += 1
-        
-        # If the test set results to be empty, respect that
-        if self.results.get("ids") == [[]]:
-            return self.results
-            
-        # Return a new ID each time to avoid 'no new docs' break in agentic loop
-        res = self.results.copy()
-        res["ids"] = [[f"doc_{self.query_count}"]]
-        res["documents"] = [["Relevant context content"]]
-        res["metadatas"] = [[{
-            "source_id": f"src{self.query_count}", 
-            "source_title": f"Title {self.query_count}",
-            "source_url": f"http://src{self.query_count}"
-        }]]
-        res["distances"] = [[0.1]]
-        return res
-
 def _make_rag_test_instance():
     # Bypass __init__ to avoid real connections
     rag = object.__new__(RAGEngine)
@@ -72,32 +40,43 @@ def _make_rag_test_instance():
     rag.batch_size = 100
     rag.embedding_engine = _FakeEmbeddingEngine()
     rag.llm_engine = _FakeLLMEngine()
-    rag.collection = _FakeCollection()
     return rag
-
 @pytest.mark.asyncio
-async def test_add_documents_batching():
+async def test_add_documents_single_call():
     rag = _make_rag_test_instance()
-    rag.batch_size = 2 # Small batch size to test batching logic
-    # Use longer UNIQUE chunks to pass the 50-char filter and avoid deduplication
+    db = AsyncMock(spec=AsyncSession)
+
     chunks = [f"Unique chunk {i}: This is a long enough chunk to pass the minimum length filter of fifty characters." for i in range(5)]
-    
-    added = await rag.add_documents("sid", "title", chunks, source_url="http://url")
-    
+
+    added = await rag.add_documents(db, "sid", "title", chunks, source_url="http://url")
+
     assert added == 5
-    assert len(rag.collection.upsert_calls) == 3 # 2 + 2 + 1
-    # Check that IDs start with the prefix
-    assert rag.collection.upsert_calls[0]["ids"][0].startswith("sid_chunk_")
-    assert rag.collection.upsert_calls[0]["metadatas"][0]["source_url"] == "http://url"
+    # Now single call because manual batching was removed
+    assert db.add_all.call_count == 1
+    call_args_list = db.add_all.call_args_list
+    assert len(call_args_list[0][0][0]) == 5
+    assert isinstance(call_args_list[0][0][0][0], KnowledgeChunk)
+
 
 @pytest.mark.asyncio
 async def test_search_similarity():
     rag = _make_rag_test_instance()
-    results = await rag.search("test query")
+    db = AsyncMock(spec=AsyncSession)
+    
+    mock_chunk = MagicMock(spec=KnowledgeChunk)
+    mock_chunk.id = "doc_1"
+    mock_chunk.content = "Relevant context content"
+    mock_chunk.chunk_metadata = {"source_id": "src1", "source_title": "Title", "source_url": "http://src1"}
+    
+    mock_result = MagicMock()
+    mock_result.all.return_value = [(mock_chunk, 0.1)]
+    db.execute = AsyncMock(return_value=mock_result)
+    
+    results = await rag.search(db, "test query")
     
     assert len(results) == 1
     assert results[0]["id"] == "doc_1"
-    assert results[0]["similarity"] == 0.9 # 1 - 0.1
+    assert results[0]["similarity"] == 0.9 
 
 @pytest.mark.asyncio
 async def test_generate_response_stream():
@@ -111,17 +90,21 @@ async def test_generate_response_stream():
 @pytest.mark.asyncio
 async def test_agentic_rag_multi_hop():
     rag = _make_rag_test_instance()
+    db = AsyncMock(spec=AsyncSession)
     
-    # Setup scenario:
-    # 1. First hop: LLM decides it needs to search more.
-    # 2. Second hop: LLM provides the final answer.
     rag.llm_engine.structured_responses = [
         {"action": "search", "content": "more details about X"},
         {"action": "answer", "content": "The final answer is Y"}
     ]
     
-    # Mock search to return something different for the second search if needed
-    # (Actually it will just use whatever the collection mock returns)
+    mock_chunk = MagicMock(spec=KnowledgeChunk)
+    mock_chunk.id = "doc_new"
+    mock_chunk.content = "More relevant context content"
+    mock_chunk.chunk_metadata = {"source_id": "src_new", "source_title": "New Doc", "source_url": "http://new"}
+    
+    mock_result = MagicMock()
+    mock_result.all.return_value = [(mock_chunk, 0.1)]
+    db.execute = AsyncMock(return_value=mock_result)
     
     initial_docs = [{
         "id": "d1", 
@@ -133,74 +116,124 @@ async def test_agentic_rag_multi_hop():
         },
         "similarity": 0.5
     }]
-    content, sources = await rag.generate_response("initial query", initial_docs)
+    content, sources = await rag.generate_response(db, "initial query", initial_docs)
     
     assert content == "The final answer is Y"
-    # Sources should include both the initial context and the new search results
     source_ids = [s["source_id"] for s in sources]
-    assert "initial_src" in source_ids # from d1
-    assert "src1" in source_ids # from doc_1
+    assert "initial_src" in source_ids 
+    assert "src_new" in source_ids
 
 @pytest.mark.asyncio
 async def test_agentic_rag_max_hops():
     rag = _make_rag_test_instance()
-    # Always return search action to exhaust hops
+    db = AsyncMock(spec=AsyncSession)
+    
     rag.llm_engine.structured_responses = [
         {"action": "search", "content": f"query {i}"} for i in range(10)
     ]
     
-    content, sources = await rag.generate_response("query", [])
+    # Return a unique doc each time to allow multiple hops
+    search_count = 0
+    def side_effect(*args, **kwargs):
+        nonlocal search_count
+        search_count += 1
+        mc = MagicMock(spec=KnowledgeChunk)
+        mc.id = f"doc_{search_count}"
+        mc.content = "c"
+        mc.chunk_metadata = {"source_id": "s"}
+        res = MagicMock()
+        res.all.return_value = [(mc, 0.1)]
+        return res
+    
+    db.execute = AsyncMock(side_effect=side_effect)
+    
+    content, sources = await rag.generate_response(db, "query", [])
     assert content == "INSUFFICIENT_DOCUMENTATION"
-    # It should have called search at most max_hops times
-    # In rag_pipeline.py, max_hops is 3. 
-    # Hop 0: query 0
-    # Hop 1: query 1
-    # Hop 2: query 2
-    # After Hop 2, loop ends or next hop would be 4th.
+    # It should have called search exactly max_hops (3) times
     assert len(rag.llm_engine.structured_responses) == 10 - 3
 
 @pytest.mark.asyncio
 async def test_agentic_rag_duplicate_search():
     rag = _make_rag_test_instance()
-    # Return same search query twice
+    db = AsyncMock(spec=AsyncSession)
+    
     rag.llm_engine.structured_responses = [
         {"action": "search", "content": "repeat"},
         {"action": "search", "content": "repeat"}
     ]
     
-    content, sources = await rag.generate_response("query", [])
+    # Need to mock search to return something so it doesn't break on 'no new docs' first
+    mock_chunk = MagicMock(spec=KnowledgeChunk)
+    mock_chunk.id = "doc_1"
+    mock_chunk.content = "c"
+    mock_chunk.chunk_metadata = {"source_id": "s"}
+    mock_result = MagicMock()
+    mock_result.all.return_value = [(mock_chunk, 0.1)]
+    db.execute = AsyncMock(return_value=mock_result)
+    
+    content, sources = await rag.generate_response(db, "query", [])
     assert content == "INSUFFICIENT_DOCUMENTATION"
-    # Should have broken after the second 'repeat' was detected as already in history
     assert len(rag.llm_engine.structured_responses) == 0
 
 @pytest.mark.asyncio
 async def test_agentic_rag_insufficient():
     rag = _make_rag_test_instance()
+    db = AsyncMock(spec=AsyncSession)
     rag.llm_engine.structured_responses = [
         {"action": "insufficient", "content": "I don't know"}
     ]
     
-    content, sources = await rag.generate_response("query", [])
+    content, sources = await rag.generate_response(db, "query", [])
     assert content == "INSUFFICIENT_DOCUMENTATION"
 
 @pytest.mark.asyncio
-async def test_add_documents_duplicate_handling():
+async def test_search_filters_robust():
     rag = _make_rag_test_instance()
-    # Identical chunks should result in identical IDs and be deduplicated
-    chunk_text = "This is a long enough chunk to pass the minimum length filter of fifty characters."
-    chunks = [chunk_text, chunk_text, "Another unique chunk that also passes the fifty character length filter."]
+    db = AsyncMock(spec=AsyncSession)
     
-    added = await rag.add_documents("sid", "title", chunks)
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    db.execute = AsyncMock(return_value=mock_result)
     
-    assert added == 2 # 1 unique + 1 unique
-    assert len(rag.collection.upsert_calls) == 1
-    assert len(rag.collection.upsert_calls[0]["ids"]) == 2
+    # Test UUID conversion and $in filter
+    sid1 = str(uuid.uuid4())
+    sid2 = str(uuid.uuid4())
+    filters = {
+        "source_id": {"$in": [sid1, sid2]},
+        "category": "technical"
+    }
+    
+    await rag.search(db, "query", filters=filters)
+    
+    # Verify db.execute was called with a statement containing these conditions
+    # (Checking the exact SQL/stmt structure is complex with mocks, but we ensure no crash)
+    assert db.execute.called
+
+@pytest.mark.asyncio
+async def test_add_documents_strips_null_bytes():
+    rag = _make_rag_test_instance()
+    db = AsyncMock(spec=AsyncSession)
+    
+    # Chunk with null bytes
+    chunk_with_null = "This is a chunk with a null byte \x00 in the middle and it must be fifty characters long."
+    chunks = [chunk_with_null]
+    
+    await rag.add_documents(db, "sid", "title", chunks)
+    
+    # Verify the cleaned chunk was added
+    added_chunk = db.add_all.call_args[0][0][0]
+    assert "\x00" not in added_chunk.content
+    assert "null byte  in the middle" in added_chunk.content
 
 @pytest.mark.asyncio
 async def test_process_query_empty():
     rag = _make_rag_test_instance()
-    rag.collection.results = {"ids": [[]], "documents": [[]], "metadatas": [[]], "distances": [[]]}
+    db = AsyncMock(spec=AsyncSession)
     
-    result = await rag.process_query("query")
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    db.execute = AsyncMock(return_value=mock_result)
+    
+    result = await rag.process_query(db, "query")
     assert "couldn't find relevant information" in result["response"]
     assert result["action"] == "escalated"

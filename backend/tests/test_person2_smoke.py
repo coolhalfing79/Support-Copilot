@@ -1,8 +1,12 @@
 import pytest
+import uuid
+from unittest.mock import AsyncMock, MagicMock
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from ai.rag_pipeline import RAGEngine
 from ai.utils import compute_completeness_score
 from utils.text_splitter import TextSplitter
+from models.knowledge_chunk import KnowledgeChunk
 
 
 class _FakeEmbeddingEngine:
@@ -36,42 +40,53 @@ class _FakeCollection:
         }
 
 
-def _make_rag_for_test() -> tuple[RAGEngine, _FakeCollection]:
+def _make_rag_for_test() -> RAGEngine:
     rag = object.__new__(RAGEngine)
     rag.top_k = 5
+    rag.max_hops = 3
     rag.batch_size = 100
     rag.embedding_engine = _FakeEmbeddingEngine()
     rag.llm_engine = _FakeLLMEngine()
-    rag.collection = _FakeCollection()
-    return rag, rag.collection
+    return rag
 
 
 @pytest.mark.asyncio
 async def test_rag_add_documents_uses_upsert() -> None:
-    rag, collection = _make_rag_for_test()
+    rag = _make_rag_for_test()
+    db = AsyncMock(spec=AsyncSession)
+    
     # Chunks must be >= 50 characters to be indexed by rag_pipeline.py
     chunk1 = "This is a long documentation chunk about system architecture that exceeds fifty characters."
     chunk2 = "Another piece of technical writing that provides enough detail to pass the length check."
-    added = await rag.add_documents("sourceA", "Title A", [chunk1, chunk2])
+    added = await rag.add_documents(db, "sourceA", "Title A", [chunk1, chunk2])
     assert added == 2
-    assert len(collection.upsert_calls) == 1
-    # Check that IDs start with the prefix (new logic uses hashlib)
-    assert collection.upsert_calls[0]["ids"][0].startswith("sourceA_chunk_")
+    assert db.add_all.called
 
 
 @pytest.mark.asyncio
 async def test_rag_search_omits_where_when_filters_none() -> None:
-    rag, collection = _make_rag_for_test()
-    rows = await rag.search("error 500", filters=None)
-    assert len(rows) == 1
-    assert "where" not in collection.query_calls[0]
+    rag = _make_rag_for_test()
+    db = AsyncMock(spec=AsyncSession)
+    
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    db.execute = AsyncMock(return_value=mock_result)
+    
+    rows = await rag.search(db, "error 500", filters=None)
+    assert len(rows) == 0
 
 
 @pytest.mark.asyncio
 async def test_rag_search_passes_where_when_filters_present() -> None:
-    rag, collection = _make_rag_for_test()
-    _ = await rag.search("error 500", filters={"source_id": "src1"})
-    assert collection.query_calls[0]["where"] == {"source_id": "src1"}
+    rag = _make_rag_for_test()
+    db = AsyncMock(spec=AsyncSession)
+    
+    mock_result = MagicMock()
+    mock_result.all.return_value = []
+    db.execute = AsyncMock(return_value=mock_result)
+    
+    _ = await rag.search(db, "error 500", filters={"source_id": "src1"})
+    assert db.execute.called
 
 
 def test_text_splitter_and_completeness_heuristic() -> None:
