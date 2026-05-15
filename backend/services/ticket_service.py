@@ -105,12 +105,14 @@ class TicketService:
         await db.flush()
 
         # Sync to Jira (best-effort — never block on failure).
+        logger.info(f"[JIRA] Attempting to create ticket in Jira: summary='{ticket.summary[:50]}', jira_client.use_mock={self.jira_client.use_mock}, jira_client.is_configured={self.jira_client.is_configured}")
         try:
             jira_response = await self.jira_client.create_ticket(ticket)
+            logger.info(f"[JIRA] Jira ticket created successfully: {jira_response}")
             ticket.jira_issue_key = jira_response.get("key")
             ticket.jira_issue_id = str(jira_response.get("id", ""))
         except Exception as exc:
-            logger.warning("Jira ticket creation failed: %s", exc)
+            logger.warning("[JIRA] Jira ticket creation failed: %s", exc, exc_info=True)
 
         await db.flush()
         await db.refresh(ticket)
@@ -178,3 +180,74 @@ class TicketService:
         await db.flush()
         await db.refresh(ticket)
         return ticket
+
+    async def sync_ticket_to_jira(self, db: AsyncSession, ticket_id: str) -> Ticket | None:
+        """Sync a single ticket's status from Jira."""
+        ticket = await db.get(Ticket, ticket_id)
+        if not ticket or not ticket.jira_issue_key:
+            return ticket
+
+        await self.jira_client.sync_status(ticket_id, db)
+        await db.refresh(ticket)
+        return ticket
+
+    async def add_comment_to_ticket(
+        self,
+        db: AsyncSession,
+        ticket_id: str,
+        comment_text: str,
+        source: str = "copilot",
+    ) -> dict[str, Any] | None:
+        """Add a comment to a ticket and sync to Jira if applicable."""
+        ticket = await db.get(Ticket, ticket_id)
+        if not ticket:
+            return None
+
+        jira_comment = None
+        if ticket.jira_issue_key:
+            try:
+                jira_comment = await self.jira_client.add_comment(
+                    ticket.jira_issue_key, comment_text
+                )
+                # Update local jira_comments
+                if ticket.jira_comments is None:
+                    ticket.jira_comments = []
+                
+                # Append to list - SQLAlchemy JSONB change detection
+                comments = list(ticket.jira_comments)
+                comments.append({
+                    "id": jira_comment.get("id"),
+                    "body": comment_text,
+                    "author": jira_comment.get("author"),
+                    "created": jira_comment.get("created"),
+                    "source": source
+                })
+                ticket.jira_comments = comments
+                await db.flush()
+            except Exception as exc:
+                logger.warning(f"Failed to sync comment to Jira for ticket {ticket_id}: {exc}")
+
+        return jira_comment
+
+    async def list_tickets_with_jira_status(
+        self,
+        db: AsyncSession,
+        status: str | None = None,
+        severity: str | None = None,
+        refresh_from_jira: bool = False,
+    ) -> list[Ticket]:
+        """List tickets and optionally refresh their status from Jira."""
+        tickets = await self.list_tickets(db, status, severity)
+        
+        if refresh_from_jira:
+            for ticket in tickets:
+                if ticket.jira_issue_key:
+                    try:
+                        await self.jira_client.sync_status(str(ticket.id), db)
+                    except Exception as exc:
+                        logger.warning(f"Failed to sync ticket {ticket.id} from Jira: {exc}")
+            
+            # Refresh all tickets from DB to get updated status
+            tickets = await self.list_tickets(db, status, severity)
+            
+        return tickets

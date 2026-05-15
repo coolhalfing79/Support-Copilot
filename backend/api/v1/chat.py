@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from api.dependencies import DbSession
+from api.dependencies import DbSession, CurrentUser
 from schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -28,11 +28,12 @@ router = APIRouter()
 )
 async def create_session(
     db: DbSession,
+    current_user: CurrentUser,
     _: SessionCreate | None = None,
 ) -> SessionResponse:
     """Create a new chat session."""
     chat_service = get_chat_service()
-    session = await chat_service.create_session(db)
+    session = await chat_service.create_session(db, user_id=str(current_user.id))
     return SessionResponse.model_validate(session)
 
 
@@ -44,15 +45,22 @@ async def send_message(
     session_id: UUID,
     message: ChatRequest,
     db: DbSession,
+    current_user: CurrentUser,
 ) -> ChatResponse:
     """Send a user message and get an AI response."""
     chat_service = get_chat_service()
+    # Ensure session exists and belongs to current user
+    session = await chat_service.get_session(db, str(session_id))
+    if session and str(session.user_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+        
     try:
         response = await chat_service.process_message(
             db=db,
             session_id=str(session_id),
             user_message=message.message,
             follow_up_responses=message.follow_up_responses,
+            user_id=str(current_user.id),
         )
         return response
     except ValueError as exc:
@@ -66,10 +74,10 @@ async def send_message(
     "/sessions",
     response_model=SessionListResponse,
 )
-async def list_sessions(db: DbSession) -> SessionListResponse:
+async def list_sessions(db: DbSession, current_user: CurrentUser) -> SessionListResponse:
     """List all chat sessions."""
     chat_service = get_chat_service()
-    sessions = await chat_service.list_sessions(db)
+    sessions = await chat_service.list_sessions(db, user_id=str(current_user.id))
     return SessionListResponse(
         sessions=[SessionResponse.model_validate(s) for s in sessions]
     )
@@ -79,15 +87,24 @@ async def list_sessions(db: DbSession) -> SessionListResponse:
     "/sessions/{session_id}",
     response_model=SessionDetailResponse,
 )
-async def get_session(session_id: UUID, db: DbSession) -> SessionDetailResponse:
+async def get_session(session_id: UUID, db: DbSession, current_user: CurrentUser) -> SessionDetailResponse:
     """Get a session with its full message history."""
     chat_service = get_chat_service()
     session = await chat_service.get_session(db, str(session_id))
     if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session {session_id} not found",
+        # Return a skeleton session for newly generated IDs to avoid 404 noise
+        from datetime import datetime, timezone
+        return SessionDetailResponse(
+            id=session_id,
+            title="New Conversation",
+            status="active",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            messages=[],
         )
+    if str(session.user_id) != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+        
     return SessionDetailResponse(
         id=session.id,
         title=session.title,

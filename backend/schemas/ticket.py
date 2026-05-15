@@ -52,6 +52,9 @@ class TicketResponse(BaseModel):
     troubleshooting_attempted: str | None = None
     conversation_summary: str | None = None
     doc_references: dict[str, Any] | None = None
+    jira_comments: list[dict[str, Any]] | None = None
+    assignee: str | None = None
+    jira_synced: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -100,3 +103,28 @@ class TicketUpdate(BaseModel):
 
 class TicketUpdateResponse(BaseModel):
     ticket: TicketResponse
+
+
+class TicketCommentRequest(BaseModel):
+    comment: str
+    source: str = "copilot"
+
+
+class TicketCommentResponse(BaseModel):
+    comment: dict[str, Any]
+
+
+class IssueTypeResponse(BaseModel):
+    id: str
+    name: str
+    subtask: bool
+    iconUrl: str | None = None
+
+
+class IssueTypeListResponse(BaseModel):
+    issue_types: list[IssueTypeResponse]
+
+
+class TicketSyncResponse(BaseModel):
+    updated_count: int
+    message: str

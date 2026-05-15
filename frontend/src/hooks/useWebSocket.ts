@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useUserStore } from '../store/userStore'
+import { useAuthStore } from '../store/authStore'
 import { WS_BASE_URL } from '../config/api'
 
 // Singleton state to survive React re-renders and StrictMode
@@ -44,9 +45,11 @@ export const useWebSocket = (sessionId: string | null) => {
     console.log('🌐 [WebSocket] Connecting to:', `${WS_BASE_URL}/${sessionId}`)
     globalSessionId = sessionId
     
-    // Add auth token placeholder for future security implementation
-    const token = 'demo-token-placeholder'
-    const url = `${WS_BASE_URL}/${sessionId}?token=${token}`
+    // Attach the real JWT token so the backend can validate the user
+    const token = useAuthStore.getState().token || ''
+    const url = token
+      ? `${WS_BASE_URL}/${sessionId}?token=${token}`
+      : `${WS_BASE_URL}/${sessionId}`
     
     try {
       const ws = new WebSocket(url)
@@ -115,7 +118,7 @@ export const useWebSocket = (sessionId: string | null) => {
         globalSocket = null
 
         // Auto-reconnect logic with exponential backoff
-        if (isMounted.current && reconnectAttempts < MAX_RECONNECT_ATTEMPTS && !event.wasClean) {
+        if (isMounted.current && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
           const timeout = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000)
           console.log(`🔄 [WebSocket] Reconnecting in ${timeout}ms...`)
           reconnectTimeoutRef.current = window.setTimeout(() => {
@@ -152,18 +155,41 @@ export const useWebSocket = (sessionId: string | null) => {
     const msg = content.trim()
     if (!msg) return
 
+    // If socket is dead, try to connect first
+    if (!globalSocket || globalSocket.readyState > WebSocket.OPEN) {
+      console.warn('🔄 [WebSocket] Socket closed or closing. Attempting to reconnect...')
+      connect()
+    }
+
+    // Always add the user message to UI immediately for responsiveness
+    const userMessage = {
+      id: `local-${Date.now()}`,
+      role: 'user',
+      content: msg,
+      timestamp: new Date().toISOString(),
+    }
+    console.log('📝 [WebSocket] Adding user message to UI:', msg)
+    storeRef.current.addMessage(userMessage as any)
+
+    // If still connecting, wait a moment then try to send
+    if (globalSocket?.readyState === WebSocket.CONNECTING) {
+      console.warn('⏳ [WebSocket] Socket is CONNECTING. Message buffered...')
+      setTimeout(() => {
+        if (globalSocket?.readyState === WebSocket.OPEN) {
+          console.log('📤 [WebSocket] Sending buffered message:', msg)
+          globalSocket.send(JSON.stringify({ 
+            type: 'message',
+            content: msg,
+            knowledge_sources: useUserStore.getState().selectedSources
+          }))
+        }
+      }, 1000)
+      return
+    }
+
     if (globalSocket?.readyState === WebSocket.OPEN) {
-      console.log('📤 [WebSocket] Sending:', msg)
-      const userMessage = {
-        id: Date.now().toString(),
-        role: 'user',
-        content: msg,
-        timestamp: new Date().toISOString(),
-      }
-      storeRef.current.addMessage(userMessage as any)
-      
       const { selectedSources } = useUserStore.getState()
-      
+      console.log('📤 [WebSocket] Sending:', msg)
       globalSocket.send(JSON.stringify({ 
         type: 'message',
         content: msg,
@@ -174,5 +200,14 @@ export const useWebSocket = (sessionId: string | null) => {
     }
   }
 
-  return { sendMessage }
+  const stopQuery = () => {
+    if (globalSocket) {
+      console.log('🛑 [WebSocket] Stopping query...')
+      globalSocket.close(1000, "User stopped query")
+      globalSocket = null
+      storeRef.current.setStreaming(false)
+    }
+  }
+
+  return { sendMessage, stopQuery }
 }

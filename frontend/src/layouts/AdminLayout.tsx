@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Database, Ticket, ArrowLeft, Shield } from 'lucide-react'
 import { useAdminStore } from '../store/adminStore'
@@ -25,7 +25,7 @@ export const AdminLayout = ({ children }: AdminLayoutProps) => {
   const navItems = [
     { path: '/admin', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/admin/knowledge', label: 'Knowledge Base', icon: Database },
-    { path: '/admin/tickets', label: 'Tickets', icon: Ticket },
+    { path: '/admin/tickets', label: 'History', icon: Ticket },
   ]
 
   return (

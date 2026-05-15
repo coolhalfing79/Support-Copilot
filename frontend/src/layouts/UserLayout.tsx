@@ -12,16 +12,12 @@ export const UserLayout = ({ children }: UserLayoutProps) => {
       <Header />
       
       <main className="flex-1 pt-24 pb-12 px-4 md:px-6 relative z-10">
-        <div className="max-w-4xl mx-auto h-[calc(100vh-160px)]">
+        <div className="max-w-4xl mx-auto h-[calc(100vh-100px)] flex flex-col">
           {children}
         </div>
       </main>
       
-      <footer className="py-4 text-center border-t border-[#e0e0e0] relative z-10">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-[#525252] font-medium">
-          Powered by Gemini AI & ChromaDB
-        </p>
-      </footer>
+      
     </div>
   )
 }

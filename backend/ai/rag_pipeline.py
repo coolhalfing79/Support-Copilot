@@ -1,9 +1,18 @@
-"""RAG pipeline: retrieve from Chroma and generate with Gemini."""
+"""RAG pipeline: retrieve from Chroma and generate with Gemini.
+
+Design principles:
+  - Search ChromaDB for top-k chunks relevant to the query.
+  - Clean the retrieved chunks (strip Jina markdown noise) before feeding to LLM.
+  - Ask the LLM to answer STRICTLY from the provided context.
+  - If the context is insufficient, return INSUFFICIENT_DOCUMENTATION.
+  - Never save generated answers back into ChromaDB (that causes self-pollution).
+"""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any, AsyncIterator
 
 from ai.chroma_utils import get_chroma_client, get_collection
@@ -21,9 +30,33 @@ logger = logging.getLogger(__name__)
 
 _rag_instance: "RAGEngine | None" = None
 
+# ── Inline content cleaner (fast, no import cycle) ────────────────────────
+_MD_LINK    = re.compile(r'\[([^\]]*)\]\([^)]+\)')
+_MD_IMAGE   = re.compile(r'!\[[^\]]*\]\([^)]+\)')
+_BARE_URL   = re.compile(r'^https?://\S+\s*$', re.MULTILINE)
+_JINA_META  = re.compile(
+    r'^(Title|URL Source|Published Time|Markdown Content|Description|Image \d+):\s*.*$',
+    re.MULTILINE,
+)
+_HTML_TAG   = re.compile(r'<[^>]+>')
+_MULTI_NL   = re.compile(r'\n{3,}')
+
+
+def _clean_chunk(text: str) -> str:
+    """Strip Jina reader noise from a single chunk so the LLM sees clean prose."""
+    text = _JINA_META.sub('', text)
+    text = _MD_IMAGE.sub('', text)
+    text = _MD_LINK.sub(r'\1', text)
+    text = _BARE_URL.sub('', text)
+    text = _HTML_TAG.sub('', text)
+    text = _MULTI_NL.sub('\n\n', text)
+    return text.strip()
+
+
+# ── RAGEngine ─────────────────────────────────────────────────────────────
 
 class RAGEngine:
-    """Retrieval + generation engine."""
+    """Retrieval + grounded generation engine."""
 
     def __init__(self, top_k: int = 5) -> None:
         settings = get_settings()
@@ -34,43 +67,78 @@ class RAGEngine:
         self.collection = get_collection(client, settings.CHROMA_COLLECTION)
         self.batch_size = settings.CHROMA_BATCH_SIZE
 
+    # ------------------------------------------------------------------
+    # Indexing
+    # ------------------------------------------------------------------
+
     async def add_documents(
-        self, source_id: str, source_title: str, chunks: list[str], source_url: str = ""
+        self,
+        source_id: str,
+        source_title: str,
+        chunks: list[str | dict[str, str]],
+        source_url: str = "",
     ) -> int:
-        """Embed and add chunks to Chroma in batches."""
+        """Embed and upsert chunks into ChromaDB.
+
+        NOTE: Never call this with auto-generated fallback text. Only call it
+        with real documentation content from the ingestion pipeline.
+        """
         if not chunks:
             return 0
 
-        logger.info(f"Adding {len(chunks)} chunks for source: {source_title} ({source_id})")
-        embeddings = await self.embedding_engine.embed_documents(chunks)
-        ids = [f"{source_id}_chunk_{i}" for i in range(len(chunks))]
-        metadatas = [
-            {
-                "source_id": source_id,
-                "source_title": source_title,
-                "chunk_index": i,
-                "total_chunks": len(chunks),
-                "source_url": source_url,
-            }
-            for i in range(len(chunks))
-        ]
+        # Normalize chunks to objects
+        chunk_data = []
+        for c in chunks:
+            if isinstance(c, str):
+                chunk_data.append({"content": c, "url": source_url})
+            else:
+                chunk_data.append({"content": c.get("content", ""), "url": c.get("url", source_url)})
 
-        # ChromaDB has a maximum batch size.
-        for i in range(0, len(chunks), self.batch_size):
+        # Clean chunks inline before embedding
+        clean_chunks = []
+        clean_metadatas = []
+        import hashlib
+        for i, item in enumerate(chunk_data):
+            cleaned = _clean_chunk(item["content"])
+            if len(cleaned) >= 50:
+                clean_chunks.append(cleaned)
+                clean_metadatas.append({
+                    "source_id": source_id,
+                    "source_title": source_title,
+                    "source_url": item["url"],
+                    "chunk_index": i,
+                })
+
+        if not clean_chunks:
+            logger.warning("add_documents: all chunks became empty after cleaning for %s", source_id)
+            return 0
+            
+        embeddings = await self.embedding_engine.embed_documents(clean_chunks)
+        ids = [f"{source_id}_chunk_{hashlib.md5(c.encode()).hexdigest()[:12]}" for c in clean_chunks]
+
+        # Upsert so re-indexing the same source doesn't fail on duplicate IDs.
+        for i in range(0, len(clean_chunks), self.batch_size):
             end = i + self.batch_size
             self.collection.upsert(
-                documents=chunks[i:end],
+                documents=clean_chunks[i:end],
                 embeddings=embeddings[i:end],
-                metadatas=metadatas[i:end],
+                metadatas=clean_metadatas[i:end,
                 ids=ids[i:end],
             )
-        
-        return len(chunks)
+        logger.info("Indexed %d clean chunks for source '%s'", len(clean_chunks), source_title)
+        return len(clean_chunks)
+
+    # ------------------------------------------------------------------
+    # Retrieval
+    # ------------------------------------------------------------------
 
     async def search(
-        self, query: str, top_k: int | None = None, filters: dict | None = None
+        self,
+        query: str,
+        top_k: int | None = None,
+        filters: dict | None = None,
     ) -> list[dict[str, Any]]:
-        """Search Chroma for relevant documents."""
+        """Vector search in ChromaDB. Returns rows sorted by similarity desc."""
         k = top_k or self.top_k
         query_embedding = await self.embedding_engine.embed_query(query)
         query_kwargs: dict[str, Any] = {
@@ -79,111 +147,198 @@ class RAGEngine:
         }
         if filters:
             query_kwargs["where"] = filters
-        
+
         result = await asyncio.to_thread(self.collection.query, **query_kwargs)
 
-        ids = result.get("ids", [[]])[0]
-        docs = result.get("documents", [[]])[0]
+        ids       = result.get("ids",       [[]])[0]
+        docs      = result.get("documents", [[]])[0]
         metadatas = result.get("metadatas", [[]])[0]
         distances = result.get("distances", [[]])[0]
 
         rows: list[dict[str, Any]] = []
         for i in range(len(ids)):
-            distance = distances[i] if i < len(distances) else 1.0
+            dist = distances[i] if i < len(distances) else 1.0
             rows.append(
                 {
-                    "id": ids[i],
-                    "content": docs[i],
-                    "metadata": metadatas[i] or {},
-                    "distance": distance,
-                    "similarity": round(1 - float(distance), 4),
+                    "id":         ids[i],
+                    "content":    _clean_chunk(docs[i]),  # clean on read too
+                    "metadata":   metadatas[i] or {},
+                    "distance":   dist,
+                    "similarity": round(1.0 - float(dist), 4),
                 }
             )
         return rows
 
+    async def _generate_hypothetical_doc(self, query: str) -> str:
+        """Use LLM to generate a hypothetical ideal answer to the query (HyDE)."""
+        prompt = (
+            f"Please write a technical documentation excerpt that would perfectly answer this query: \"{query}\". "
+            f"Focus on technical details, API names, and specific configuration steps. "
+            f"Reply ONLY with the text of the documentation excerpt."
+        )
+        try:
+            hypothetical_doc = await self.llm_engine.generate_response([{"role": "user", "content": prompt}])
+            return hypothetical_doc.strip()
+        except Exception as e:
+            logger.warning("Failed to generate hypothetical doc for HyDE: %s", e)
+            return query
+
+
+    # ------------------------------------------------------------------
+    # Generation — streaming (for the UI)
+    # ------------------------------------------------------------------
+
     async def generate_response_stream(
         self, query: str, context_docs: list[dict[str, Any]]
     ) -> AsyncIterator[str]:
-        """Generate a simple response stream from context."""
-        context = "\n\n".join(doc.get("content", "") for doc in context_docs)
-        messages = [
-            {
-                "role": "user",
-                "content": (
-                    "You are an expert, context-aware L2 Support AI. Analyze the provided documentation to interpret and deduce the answer to the user's question. "
-                    "You may apply the concepts from the documentation to troubleshoot specific errors (like Java stack traces), but you MUST base your reasoning on the provided text. "
-                    "Do not hallucinate outside facts. If the documentation does not contain enough relevant information to deduce a helpful answer, "
-                    "you MUST reply EXACTLY with the phrase 'INSUFFICIENT_DOCUMENTATION'.\n\n"
-                    f"Documentation:\n{context}\n\n"
-                    f"User Question: {query}"
-                ),
-            }
-        ]
+        context = self._build_context(context_docs)
+        messages = [{"role": "user", "content": self._build_answer_prompt(query, context)}]
         async for chunk in self.llm_engine.generate_response_stream(
             messages, system_prompt=CHAT_SYSTEM_PROMPT
         ):
             yield chunk
 
-    def _format_sources(self, docs: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-        """Format and deduplicate sources for the final response."""
-        seen_ids = set()
-        sources = []
-        for doc in docs.values():
-            meta = doc.get("metadata", {})
-            source_id = str(meta.get("source_id", ""))
-            # We want to deduplicate by source_id so we don't list the same page multiple times
-            if source_id and source_id not in seen_ids:
-                seen_ids.add(source_id)
-                sources.append({
-                    "source_id": source_id,
-                    "title": str(meta.get("source_title", "")),
-                    "url": str(meta.get("source_url", "")),
-                    "chunk_excerpt": truncate_excerpt(doc.get("content", "")),
-                })
-        return sources
+    # ------------------------------------------------------------------
+    # Generation — non-streaming (used by process_message / stream_message)
+    # ------------------------------------------------------------------
 
     async def generate_response(
         self, query: str, context_docs: list[dict[str, Any]]
     ) -> tuple[str, list[dict[str, Any]]]:
-        """Agentic RAG with multi-hop reasoning."""
-        accumulated_docs = {doc.get("id"): doc for doc in context_docs}
-        search_history = {query}
-        
-        max_hops = 3
-        for hop in range(max_hops):
-            context = "\n\n".join(doc.get("content", "") for doc in accumulated_docs.values())
-            prompt = AGENTIC_RAG_PROMPT.format(context=context, query=query)
-            
-            try:
-                structured_resp = await self.llm_engine.generate_structured_response(prompt, AGENTIC_RAG_SCHEMA)
-            except Exception as e:
-                logger.error(f"Error in agentic hop {hop+1}: {e}")
-                break
+        """Answer the query strictly from context_docs.
 
-            action = structured_resp.get("action")
-            content = structured_resp.get("content", "")
+        Returns:
+            (answer_text, source_list)
+            answer_text is 'INSUFFICIENT_DOCUMENTATION' when docs don't help.
+        """
+        if not context_docs:
+            return "I_DONT_KNOW", []
+
+        # ── Phase 1: Direct answer attempt ────────────────────────────
+        context = self._build_context(context_docs)
+        prompt  = self._build_answer_prompt(query, context)
+        answer  = await self.llm_engine.generate_response(
+            [{"role": "user", "content": prompt}]
+        )
+
+        if "I_DONT_KNOW" not in answer and "Mocked Response" not in answer:
+            logger.info("✅ [RAG] Answered on first pass")
+            return answer, self._build_source_list(context_docs)
+
+        # ── Phase 2: HyDE Search (Hypothetical Document Embeddings) ──
+        # If first pass failed, generate a hypothetical doc and search with it.
+        logger.info("🔍 [RAG] First pass failed. Attempting HyDE search...")
+        hyde_doc = await self._generate_hypothetical_doc(query)
+        hyde_docs = await self.search(hyde_doc, top_k=5)
+        
+        # Merge results from first search and HyDE search
+        seen_ids = {d["id"] for d in context_docs}
+        merged_docs = list(context_docs)
+        for d in hyde_docs:
+            if d["id"] not in seen_ids:
+                merged_docs.append(d)
+                seen_ids.add(d["id"])
+        
+        context_hyde = self._build_context(merged_docs)
+        answer_hyde = await self.llm_engine.generate_response(
+            [{"role": "user", "content": self._build_answer_prompt(query, context_hyde)}]
+        )
+        
+        if "I_DONT_KNOW" not in answer_hyde and "Mocked Response" not in answer_hyde:
+            logger.info("✅ [RAG] Answered via HyDE search")
+            return answer_hyde, self._build_source_list(merged_docs)
+
+
+        # ── Phase 2: One agentic re-search hop ────────────────────────
+        # Ask the LLM what to search for, then try once more.
+        hop_prompt = (
+            f"A user asked: \"{query}\"\n\n"
+            "The initial documentation search did not contain enough information.\n"
+            "Suggest ONE precise search query (5–10 words) that would find better documentation. "
+            "Reply with ONLY the search query, no explanation."
+        )
+        refined_query = await self.llm_engine.generate_response(
+            [{"role": "user", "content": hop_prompt}]
+        )
+        refined_query = refined_query.strip().strip('"\'')
+
+        if refined_query and refined_query != query and len(refined_query) < 200:
+            logger.info("🔍 [RAG] Hop: re-searching with refined query → '%s'", refined_query)
+            extra_docs = await self.search(refined_query, top_k=3)
+            # Merge, deduplicate by id
+            seen_ids = {d["id"] for d in context_docs}
+            all_docs = list(context_docs)
+            for d in extra_docs:
+                if d["id"] not in seen_ids:
+                    all_docs.append(d)
+                    seen_ids.add(d["id"])
+
+            # Sort by similarity, keep top 8
+            all_docs.sort(key=lambda x: x["similarity"], reverse=True)
+            all_docs = all_docs[:8]
+
+            context2 = self._build_context(all_docs)
+            answer2  = await self.llm_engine.generate_response(
+                [{"role": "user", "content": self._build_answer_prompt(query, context2)}]
+            )
+            if "I_DONT_KNOW" not in answer2 and "Mocked Response" not in answer2:
+                logger.info("✅ [RAG] Answered from documentation after hop")
+                return answer2, self._build_source_list(all_docs)
+
+        logger.warning("⚠️  [RAG] Could not answer from documentation for: %s", query[:80])
+        return "I_DONT_KNOW", self._build_source_list(context_docs)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _build_context(self, docs: list[dict[str, Any]]) -> str:
+        """Concatenate doc contents for the LLM context window."""
+        parts = []
+        for i, doc in enumerate(docs, 1):
+            title = doc.get("metadata", {}).get("source_title", "Document")
+            parts.append(f"[Source {i}: {title}]\n{doc.get('content', '')}")
+        return "\n\n---\n\n".join(parts)
+
+    def _build_answer_prompt(self, query: str, context: str) -> str:
+        return (
+            "You are an expert L2 Support AI. You must answer the user's question.\n"
+            "CRITICAL INSTRUCTION: You MUST base your answer STRICTLY on the documentation excerpts provided below.\n"
+            "Do NOT use your own general knowledge. Even if the documentation only provides partial steps or clues, "
+            "synthesize them to the best of your ability. Do not state that the documentation is lacking unless it is completely irrelevant.\n\n"
+            "Rules:\n"
+            "- Answer clearly and concisely.\n"
+            "- If the provided documentation is completely irrelevant to the question, reply EXACTLY with 'I_DONT_KNOW'.\n\n"
+            f"Documentation:\n{context}\n\n"
+            f"Question: {query}"
+        )
+
+    def _build_source_list(
+        self, docs: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Convert retrieved docs to the source info format expected by chat_service."""
+        seen: set[str] = set()
+        sources: list[dict[str, Any]] = []
+        for doc in docs:
+            meta = doc.get("metadata", {})
+            # Deduplicate by URL to show individual pages as sources
+            url = str(meta.get("source_url", ""))
+            if url in seen:
+                continue
+            seen.add(url)
             
-            if action == "answer" and content:
-                logger.info(f"🟢 [Agentic RAG] Deduced answer on hop {hop+1}")
-                return content, self._format_sources(accumulated_docs)
-                
-            elif action == "search" and content and content not in search_history:
-                logger.info(f"🔍 [Agentic RAG] Hop {hop+1}: Missing context. Triggering graph search for -> '{content}'")
-                search_history.add(content)
-                new_docs = await self.search(content, top_k=3)
-                for nd in new_docs:
-                    if nd.get("id") not in accumulated_docs:
-                        accumulated_docs[nd["id"]] = nd
-                continue # Next hop
-                
-            else:
-                logger.warning(f"🔴 [Agentic RAG] Hop {hop+1}: Action='{action}', Content='{content}' - Reached dead end.")
-                break
-                
-        return "INSUFFICIENT_DOCUMENTATION", self._format_sources(accumulated_docs)
+            sources.append(
+                {
+                    "source_id":     str(meta.get("source_id", "")),
+                    "title":         str(meta.get("source_title", "Unknown")),
+                    "url":           url,
+                    "chunk_excerpt": truncate_excerpt(doc.get("content", "")),
+                }
+            )
+        return sources
 
     async def process_query(self, query: str) -> dict[str, Any]:
-        """Main entry point for handling a user query."""
+        """Convenience method for standalone testing."""
         context_docs = await self.search(query)
         if not context_docs:
             return {
@@ -191,18 +346,15 @@ class RAGEngine:
                 "sources": [],
                 "action": "escalated",
                 "retrieval_score": 0.0,
-                "retrieved_chunks": [],
             }
-
         avg_similarity = sum(d["similarity"] for d in context_docs) / len(context_docs)
         response, sources = await self.generate_response(query, context_docs)
         
         return {
             "response": response,
             "sources": sources,
-            "action": "resolve" if response != "INSUFFICIENT_DOCUMENTATION" else "escalated",
+            "action": "resolve" if "INSUFFICIENT_DOCUMENTATION" not in response else "escalated",
             "retrieval_score": round(avg_similarity, 4),
-            "retrieved_chunks": [d["content"] for d in context_docs],
         }
 
 

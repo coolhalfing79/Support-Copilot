@@ -100,3 +100,52 @@ async def reindex_knowledge_source(
 
     background_tasks.add_task(knowledge_service.reindex_source, str(source_id))
     return KnowledgeSourceResponse.model_validate(source)
+
+@router.get(
+    "/graph",
+)
+async def get_knowledge_graph(db: DbSession) -> dict:
+    """Return nodes and edges representing the knowledge graph with content."""
+    knowledge_service = get_knowledge_service()
+    sources = await knowledge_service.list_sources(db)
+    
+    nodes = []
+    edges = []
+    
+    # Root node
+    nodes.append({"id": "root", "label": "Knowledge Base", "type": "root"})
+    
+    for s in sources:
+        source_id = str(s.id)
+        
+        # Fetch chunk content from ChromaDB
+        chunks_data = []
+        try:
+            result = knowledge_service.rag_engine.collection.get(where={"source_id": source_id})
+            if result and result.get("documents"):
+                docs = result["documents"]
+                for i, doc in enumerate(docs):
+                    chunks_data.append({
+                        "id": f"chunk-{i}",
+                        "excerpt": doc[:150] + "..." if len(doc) > 150 else doc
+                    })
+        except Exception:
+            pass
+
+        nodes.append({
+            "id": source_id,
+            "label": s.title or s.url,
+            "url": s.url,
+            "type": "source",
+            "status": s.status,
+            "chunk_count": s.chunk_count,
+            "chunks": chunks_data
+        })
+        edges.append({
+            "id": f"e-root-{source_id}",
+            "source": "root",
+            "target": source_id,
+        })
+        
+    return {"nodes": nodes, "edges": edges}
+

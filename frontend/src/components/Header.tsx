@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Bot, LogOut, LayoutGrid, User } from 'lucide-react'
+import { Bot, LogOut, LayoutGrid, User, ShieldCheck } from 'lucide-react'
 import { KnowledgeSourceSelector } from './KnowledgeSourceSelector'
 import { useAuthStore } from '../store/authStore'
 
@@ -41,7 +41,17 @@ export const Header = () => {
               className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#ffffff] border border-[#e0e0e0] text-xs text-[#525252] hover:text-[#161616] hover:bg-[#f4f4f4] transition-all"
             >
               <LayoutGrid className="w-4 h-4" />
-              <span>Tickets</span>
+              <span>History</span>
+            </Link>
+          )}
+
+          {user?.role === 'admin' && (
+            <Link 
+              to="/admin" 
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-xs font-bold text-indigo-700 hover:bg-indigo-100 transition-all"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Admin Panel</span>
             </Link>
           )}
 

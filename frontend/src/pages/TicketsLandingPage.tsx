@@ -24,7 +24,7 @@ export const TicketsLandingPage = () => {
       {/* Hero Section */}
       <div className="flex flex-col md:flex-row items-center justify-between gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-[#161616] mb-2">My Tickets</h1>
+          <h1 className="text-3xl font-bold text-[#161616] mb-2">History</h1>
           <p className="text-[#525252] text-sm">
             Manage your support requests and view history.
           </p>
@@ -34,18 +34,18 @@ export const TicketsLandingPage = () => {
           className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#0f62fe] text-white font-bold text-sm shadow-md shadow-[#0f62fe]/20 hover:scale-105 transition-transform"
         >
           <Plus className="w-5 h-5" />
-          NEW TICKET
+          NEW CHAT
         </button>
       </div>
 
-      {/* Tickets List */}
+      {/* History List */}
       <div className="grid grid-cols-1 gap-4">
         {sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center bg-[#ffffff] rounded-3xl border border-[#e0e0e0] shadow-sm">
             <div className="w-16 h-16 rounded-2xl bg-[#f4f4f4] border border-[#e0e0e0] flex items-center justify-center mb-6">
               <Ticket className="w-8 h-8 text-[#a8a8a8]" />
             </div>
-            <h3 className="text-xl font-bold text-[#161616] mb-2">No tickets yet</h3>
+            <h3 className="text-xl font-bold text-[#161616] mb-2">No history yet</h3>
             <p className="text-[#525252] text-sm max-w-xs mb-8">
               Start your first conversation to get help with technical issues.
             </p>
@@ -53,7 +53,7 @@ export const TicketsLandingPage = () => {
               onClick={handleNewTicket}
               className="px-8 py-3 rounded-xl bg-[#ffffff] border border-[#0f62fe] hover:bg-[#0f62fe] text-[#0f62fe] hover:text-white text-sm font-bold transition-all"
             >
-              CREATE TICKET
+              NEW CHAT
             </button>
           </div>
         ) : (
@@ -72,7 +72,7 @@ export const TicketsLandingPage = () => {
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-[#161616] font-bold truncate group-hover:text-[#0f62fe] transition-colors">
-                    {session.title || 'Untitled Ticket'}
+                    {session.title || 'Untitled Chat'}
                   </h3>
                   <div className="flex items-center gap-3 mt-1">
                     <span className="flex items-center gap-1 text-[10px] text-[#a8a8a8] uppercase tracking-widest font-bold">

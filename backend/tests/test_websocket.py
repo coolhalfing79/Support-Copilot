@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from main import app
 import json
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 def test_websocket_chat():
     try:
@@ -10,17 +10,31 @@ def test_websocket_chat():
     except TypeError:
         pytest.skip("TestClient is incompatible with current httpx version")
 
-    mock_chat_service = AsyncMock()
-    # Mock response object attributes that message_generator expects
-    mock_response = AsyncMock()
-    mock_response.response = "Mock response chunk data."
-    mock_response.action = "resolve"
-    mock_response.sources = []
-    mock_response.ticket = None
-    mock_response.message_id = "msg-123"
     
-    mock_chat_service.process_message.return_value = mock_response
+    mock_chat_service = MagicMock()
+    
+    class MockAsyncIterator:
+        def __init__(self, items):
+            self.items = items
+        def __aiter__(self):
+            return self
+        async def __anext__(self):
+            if not self.items:
+                raise StopAsyncIteration
+            return self.items.pop(0)
 
+    # stream_message must NOT be an AsyncMock if we want to call it directly as a regular function returning an iterator
+    mock_chat_service.stream_message.return_value = MockAsyncIterator([
+        {"type": "start"},
+        {"type": "chunk", "content": "Mock response chunk data."},
+        {
+            "type": "final",
+            "action": "resolve",
+            "sources": [],
+            "message_id": "msg-123"
+        }
+    ])
+    
     with patch("api.v1.ws.websocket.get_chat_service", return_value=mock_chat_service):
         # Connect to the websocket
         with client.websocket_connect("/api/v1/chat/ws/test-session-123") as websocket:

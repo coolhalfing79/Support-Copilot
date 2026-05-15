@@ -63,7 +63,7 @@ class ConfidenceService:
         Returns:
             Dict with ``score``, ``action``, and optionally ``follow_up_questions``.
         """
-        base_score = 0.30
+        base_score = 0.20
 
         # Boost if the user already answered clarification questions.
         if follow_up_responses:

@@ -1,6 +1,5 @@
 import { create } from 'zustand'
-import axios from 'axios'
-import { API_BASE_URL } from '../config/api'
+import { api } from '../config/api'
 
 export interface SourceInfo {
   source_id: string
@@ -51,9 +50,7 @@ interface UserState {
   toggleSourceSelection: (sourceId: string) => void
 }
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-})
+
 
 export const useUserStore = create<UserState>((set) => ({
   sessionId: null,
@@ -109,11 +106,24 @@ export const useUserStore = create<UserState>((set) => ({
     set({ isHistoryLoading: true })
     try {
       const response = await api.get(`/chat/sessions/${id}`)
-      const messages = response.data.messages || []
-      set({ messages, isHistoryLoading: false })
-    } catch (err) {
-      console.error('Failed to load session history', err)
-      set({ isHistoryLoading: false })
+      const serverMessages = response.data.messages || []
+      
+      set((state) => {
+        // Only overwrite if we don't have new local messages in flight
+        // or if the server actually returned history.
+        if (state.messages.length > 0 && serverMessages.length === 0) {
+           return { isHistoryLoading: false }
+        }
+        return { messages: serverMessages, isHistoryLoading: false }
+      })
+    } catch (err: any) {
+      if (err.response?.status === 404) {
+        // New session, no history yet - this is fine
+        set({ messages: [], isHistoryLoading: false })
+      } else {
+        console.error('Failed to load session history', err)
+        set({ isHistoryLoading: false })
+      }
     }
   },
 

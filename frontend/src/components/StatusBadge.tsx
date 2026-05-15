@@ -4,15 +4,7 @@ interface StatusBadgeProps {
   status: KnowledgeStatus
 }
 
-interface StatusConfigEntry {
-  label: string
-  color: string
-  bgColor: string
-  dotColor: string
-  pulse?: boolean
-}
-
-const statusConfig: Record<KnowledgeStatus, StatusConfigEntry> = {
+const statusConfig: Record<string, { label: string; color: string; bgColor: string; dotColor: string; pulse?: boolean }> = {
   pending: { label: 'Pending', color: 'text-[#c6c6c6]', bgColor: 'bg-[#262626]', dotColor: 'bg-[#8d8d8d]' },
   processing: { label: 'Processing', color: 'text-[#0f62fe]', bgColor: 'bg-[#0f62fe]/10', dotColor: 'bg-[#0f62fe]', pulse: true },
   indexed: { label: 'Indexed', color: 'text-[#24a148]', bgColor: 'bg-[#24a148]/10', dotColor: 'bg-[#24a148]' },

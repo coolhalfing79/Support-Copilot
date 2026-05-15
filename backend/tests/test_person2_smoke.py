@@ -39,6 +39,7 @@ class _FakeCollection:
 def _make_rag_for_test() -> tuple[RAGEngine, _FakeCollection]:
     rag = object.__new__(RAGEngine)
     rag.top_k = 5
+    rag.batch_size = 100
     rag.embedding_engine = _FakeEmbeddingEngine()
     rag.llm_engine = _FakeLLMEngine()
     rag.collection = _FakeCollection()

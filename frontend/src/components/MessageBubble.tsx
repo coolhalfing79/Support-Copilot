@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
-import { Bot, User, CheckCircle2, AlertCircle, HelpCircle } from 'lucide-react'
+import { Bot, User, CheckCircle2, AlertCircle, HelpCircle, BrainCircuit } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Message } from '../store/userStore'
+import { useUserStore } from '../store/userStore'
 import { ClarificationChips } from './ClarificationChips'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useParams } from 'react-router-dom'
@@ -9,7 +10,7 @@ import { useState } from 'react'
 
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { RagGraphModal } from './RagGraphModal'
+import { SourceChips, SourceDetailPanel } from './SourceChipPanel'
 
 interface MessageBubbleProps {
   message: Message
@@ -19,7 +20,31 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
   const isAI = message.role === 'assistant'
   const { sessionId } = useParams<{ sessionId: string }>()
   const { sendMessage } = useWebSocket(sessionId || null)
-  const [isGraphOpen, setIsGraphOpen] = useState(false)
+  const [activePanelIdx, setActivePanelIdx] = useState<number | null>(null)
+  const { messages } = useUserStore()
+
+  // Find the user query that triggered this AI answer
+  const userQuery = (() => {
+    const idx = messages.findIndex(m => m.id === message.id)
+    if (idx > 0 && messages[idx - 1].role === 'user') {
+      return messages[idx - 1].content
+    }
+    return ''
+  })()
+
+  // Classify answer type
+  const hasSources = isAI && message.sources && message.sources.length > 0
+  const isGeminiFallback = hasSources && message.sources!.every(s => s.title === 'AI Fallback Knowledge')
+  const isRagHit = hasSources && !isGeminiFallback
+  const isEscalated = isAI && message.action === 'escalated'
+
+  // Safe timestamp parse
+  const displayTime = (() => {
+    const d = new Date(message.timestamp)
+    return isNaN(d.getTime())
+      ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  })()
 
   return (
     <motion.div
@@ -80,57 +105,56 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
             </div>
           )}
 
-          {/* Source Indicators */}
-          {isAI && message.sources && message.sources.length > 0 && (
+          {/* State 1: RAG hit — source chips */}
+          {isRagHit && (
             <div className="mt-3 pt-3 border-t border-[#e0e0e0] text-xs">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-semibold text-[#525252] uppercase tracking-wider text-[10px]">Sources Consulted:</span>
-                <button 
-                  onClick={() => setIsGraphOpen(true)}
-                  className="text-[10px] text-[#0f62fe] font-semibold uppercase tracking-wider hover:underline flex items-center gap-1"
-                >
-                  View RAG Graph
-                </button>
+              <span className="text-[#6f6f6f] text-[10px] font-normal mb-1 block">Sources consulted</span>
+              <SourceChips
+                sources={message.sources!}
+                activeIndex={activePanelIdx}
+                onChipClick={(idx) => setActivePanelIdx(prev => prev === idx ? null : idx)}
+              />
+            </div>
+          )}
+
+          {/* State 2: Gemini fallback — amber badge, no chips */}
+          {isGeminiFallback && (
+            <div className="mt-3 pt-3 border-t border-[#e0e0e0]">
+              <div className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#fdf6e3] border border-[#f1c21b]/30">
+                <BrainCircuit className="w-3.5 h-3.5 text-[#b28600] flex-shrink-0" />
+                <span className="text-[11px] text-[#6e4b00] font-medium">
+                  Answered from general knowledge · not from your docs
+                </span>
               </div>
-              <div className="flex flex-col gap-1.5">
-                {message.sources.map((s, idx) => {
-                  const isFallback = s.title === "AI Fallback Knowledge";
-                  return (
-                    <div key={idx} className="flex items-center gap-2 bg-[#ffffff] p-2 rounded border border-[#e0e0e0] shadow-sm">
-                      <span className={cn(
-                          "w-2 h-2 rounded-full shadow-sm",
-                          isFallback ? "bg-[#8a3ffc] shadow-[#8a3ffc]/50" : "bg-[#24a148] shadow-[#24a148]/50"
-                        )} />
-                      {isFallback ? (
-                        <span className="font-medium text-[#161616] truncate flex-1">
-                          Base Knowledge (LLM)
-                        </span>
-                      ) : s.url && s.url.startsWith('http') ? (
-                        <a 
-                          href={s.url} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="font-medium text-[#161616] truncate flex-1 hover:text-[#0f62fe] hover:underline transition-all"
-                        >
-                          {s.title}
-                        </a>
-                      ) : (
-                        <span className="font-medium text-[#161616] truncate flex-1">
-                          {s.title}
-                        </span>
-                      )}
-                      <span className="text-[10px] text-[#525252] border border-[#e0e0e0] px-1.5 py-0.5 rounded uppercase tracking-wide bg-[#f4f4f4]">
-                        {isFallback ? "Generative" : "Document"}
-                      </span>
-                    </div>
-                  );
-                })}
+            </div>
+          )}
+
+          {/* State 3: Escalated ticket — card with ticket ID, no chips */}
+          {isEscalated && (
+            <div className="mt-3 pt-3 border-t border-[#e0e0e0]">
+              <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-[#fff1f1] border border-[#da1e28]/20">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-[#da1e28] flex-shrink-0" />
+                  <div>
+                    <span className="text-[11px] font-semibold text-[#161616] block">
+                      Ticket created
+                    </span>
+                    <span className="text-[10px] text-[#6f6f6f]">
+                      TKT-{message.id?.slice(0, 8).toUpperCase()}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-[#da1e28] bg-[#da1e28]/10 px-2 py-0.5 rounded-full">
+                    In Review
+                  </span>
+                </div>
               </div>
             </div>
           )}
           
           <span className="text-[10px] text-[#a8a8a8] absolute bottom-[-18px] right-2 font-medium">
-            {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {displayTime}
           </span>
         </div>
 
@@ -149,10 +173,12 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
       )}
 
       {isAI && (
-        <RagGraphModal 
-          isOpen={isGraphOpen} 
-          onClose={() => setIsGraphOpen(false)} 
-          message={message} 
+        <SourceDetailPanel
+          source={activePanelIdx !== null && message.sources ? message.sources[activePanelIdx] : null}
+          isOpen={activePanelIdx !== null}
+          onClose={() => setActivePanelIdx(null)}
+          userQuery={userQuery}
+          answerContent={message.content}
         />
       )}
     </motion.div>

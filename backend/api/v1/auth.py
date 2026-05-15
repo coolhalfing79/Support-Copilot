@@ -40,4 +40,10 @@ async def login(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
     access_token = auth_service.create_access_token(
         data={"sub": user.email, "role": user.role.value}
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "role": user.role.value,
+        "name": user.username,
+        "id": str(user.id)
+    }

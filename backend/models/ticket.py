@@ -45,6 +45,11 @@ class Ticket(TimestampedModel):
     doc_references: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB, nullable=True
     )
+    jira_comments: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    assignee: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    jira_synced: Mapped[bool] = mapped_column(default=False)
 
     session: Mapped["Session | None"] = relationship(
         "Session", back_populates="tickets"

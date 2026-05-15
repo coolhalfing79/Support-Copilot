@@ -1,18 +1,20 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Sparkles } from 'lucide-react'
+import { Square, Send, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface MessageInputProps {
   onSendMessage: (content: string) => void
+  onStop?: () => void
   disabled?: boolean
+  isStreaming?: boolean
 }
 
-export const MessageInput = ({ onSendMessage, disabled }: MessageInputProps) => {
+export const MessageInput = ({ onSendMessage, onStop, disabled, isStreaming }: MessageInputProps) => {
   const [content, setContent] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const handleSend = () => {
-    if (content.trim() && !disabled) {
+    if (content.trim() && !disabled && !isStreaming) {
       onSendMessage(content.trim())
       setContent('')
     }
@@ -50,16 +52,18 @@ export const MessageInput = ({ onSendMessage, disabled }: MessageInputProps) => 
         </div>
         
         <button
-          onClick={handleSend}
-          disabled={!content.trim() || disabled}
+          onClick={isStreaming ? onStop : handleSend}
+          disabled={(isStreaming ? false : !content.trim()) || disabled}
           className={cn(
             "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
-            content.trim() && !disabled
+            (isStreaming || (content.trim() && !disabled))
               ? "bg-[#0f62fe] text-white shadow-md shadow-[#0f62fe]/20 scale-100"
               : "bg-[#e0e0e0] text-[#a8a8a8] scale-95 cursor-not-allowed"
           )}
         >
-          {disabled ? (
+          {isStreaming ? (
+            <Square className="w-4 h-4 fill-current" />
+          ) : disabled ? (
             <Sparkles className="w-5 h-5 animate-spin" />
           ) : (
             <Send className="w-5 h-5" />

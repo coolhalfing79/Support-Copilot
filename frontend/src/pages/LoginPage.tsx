@@ -26,7 +26,7 @@ export const LoginPage = () => {
         await login(email, password)
         navigate('/')
       } else {
-        await register(username, email, password)
+        await register(username, email, password, 'agent')
         setIsLogin(true) // Switch to login after successful registration
         setSuccess('Registration successful! Please login with your credentials.')
       }
@@ -134,6 +134,7 @@ export const LoginPage = () => {
                 />
               </div>
             </div>
+
 
             <button
               type="submit"

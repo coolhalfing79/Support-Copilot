@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     JIRA_EMAIL: str = ""
     JIRA_API_TOKEN: str = ""
     JIRA_PROJECT_KEY: str = "SUP"
+    JIRA_DEFAULT_ISSUE_TYPE: str = "Bug"
+    JIRA_DEFAULT_ASSIGNEE: str | None = None
 
     CHROMA_HOST: str = "localhost"
     CHROMA_PORT: int = 8001
@@ -38,7 +40,7 @@ class Settings(BaseSettings):
     # Keep as plain string to avoid pydantic-settings trying JSON decode before custom validators.
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000,http://localhost:5173"
 
-    SECRET_KEY: str = "super-secret-key-change-it-in-production"
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 

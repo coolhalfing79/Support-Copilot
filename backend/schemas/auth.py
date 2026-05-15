@@ -16,6 +16,9 @@ class UserLogin(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    role: str
+    name: str
+    id: str
 
 class UserResponse(BaseModel):
     id: UUID

@@ -16,11 +16,32 @@ export interface KnowledgeSource {
 export interface Ticket {
   id: string
   jira_issue_key?: string
+  jira_issue_id?: string
   summary: string
+  description?: string
   severity: 'low' | 'medium' | 'high' | 'critical'
   status: 'open' | 'in_progress' | 'resolved' | 'closed'
   product_module?: string
+  environment?: string
+  error_messages?: string
+  steps_to_reproduce?: string
+  jira_comments?: Array<{
+    id: string
+    body: string
+    author?: string
+    created: string
+    source: string
+  }>
+  assignee?: string
+  jira_synced: boolean
   created_at: string
+}
+
+export interface IssueType {
+  id: string
+  name: string
+  subtask: boolean
+  iconUrl?: string
 }
 
 export interface MetricOverview {
@@ -59,6 +80,9 @@ interface AdminState {
   setFilterSeverity: (severity: string | null) => void
   openTicketDetail: (ticket: Ticket) => void
   closeTicketDetail: () => void
+  syncTicket: (id: string) => Promise<void>
+  addTicketComment: (id: string, comment: string) => Promise<void>
+  loadIssueTypes: () => Promise<IssueType[]>
   loadMetrics: () => Promise<void>
   clearError: () => void
 }
@@ -159,6 +183,47 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   openTicketDetail: (ticket) => set({ selectedTicket: ticket }),
   closeTicketDetail: () => set({ selectedTicket: null }),
   
+  syncTicket: async (id) => {
+    set({ isLoading: true, error: null })
+    try {
+      const response = await api.get(`/tickets/${id}?refresh=true`)
+      const updatedTicket = response.data.ticket || response.data
+      set((state) => ({
+        tickets: state.tickets.map((t) => (t.id === id ? updatedTicket : t)),
+        selectedTicket: state.selectedTicket?.id === id ? updatedTicket : state.selectedTicket,
+        isLoading: false,
+      }))
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || 'Failed to sync ticket', isLoading: false })
+    }
+  },
+
+  addTicketComment: async (id, comment) => {
+    set({ error: null })
+    try {
+      await api.post(`/tickets/${id}/comment`, { comment, source: 'admin' })
+      // Reload ticket to get updated comments
+      const response = await api.get(`/tickets/${id}`)
+      const updatedTicket = response.data.ticket || response.data
+      set((state) => ({
+        tickets: state.tickets.map((t) => (t.id === id ? updatedTicket : t)),
+        selectedTicket: state.selectedTicket?.id === id ? updatedTicket : state.selectedTicket,
+      }))
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || 'Failed to add comment' })
+    }
+  },
+
+  loadIssueTypes: async () => {
+    try {
+      const response = await api.get('/tickets/jira/issue-types')
+      return response.data.issue_types || response.data
+    } catch (err: any) {
+      set({ error: err.response?.data?.message || 'Failed to load issue types' })
+      return []
+    }
+  },
+
   // Analytics actions
   loadMetrics: async () => {
     set({ isLoading: true, error: null })

@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ai.rag_pipeline import RAGEngine
 from config.database import async_session_factory
 from models.knowledge_source import KnowledgeSource
+from utils.content_cleaner import clean_and_filter_pages
 from utils.text_splitter import TextSplitter
 from utils.web_scraper import WebScraper
 
@@ -125,18 +126,25 @@ class KnowledgeService:
                 if not pages:
                     raise ValueError("Fetched content is too short, empty, or crawler returned no valid pages")
 
-                # 2. Split into chunks.
-                chunks = []
-                for page_content in pages:
-                    chunks.extend(self.text_splitter.split_text(page_content))
+                # 2. Clean and deduplicate pages before chunking.
+                pages = clean_and_filter_pages(pages)
+                if not pages:
+                    raise ValueError("All fetched pages were filtered out as low-quality content")
+
+                # 3. Split into chunks, preserving page URLs.
+                chunks_with_metadata = []
+                for p in pages:
+                    p_chunks = self.text_splitter.split_text(p["content"])
+                    for c in p_chunks:
+                        chunks_with_metadata.append({"content": c, "url": p["url"]})
                 
-                logger.info("Split into %d chunks across %d pages", len(chunks), len(pages))
+                logger.info("Split into %d chunks across %d cleaned pages", len(chunks_with_metadata), len(pages))
 
                 # 3. Add to ChromaDB (embeddings generated internally).
                 chunk_count = await self.rag_engine.add_documents(
                     source_id=str(source_id),
                     source_title=source.title or source.url,
-                    chunks=chunks,
+                    chunks=chunks_with_metadata,
                     source_url=source.url,
                 )
 
