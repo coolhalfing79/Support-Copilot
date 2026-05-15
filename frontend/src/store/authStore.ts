@@ -46,7 +46,7 @@ export const useAuthStore = create<AuthState>()(
             token: access_token, 
             isAuthenticated: true 
           })
-        } catch (err) {
+        } catch (err: unknown) {
           console.error('Login failed', err)
           throw err
         }
@@ -55,7 +55,7 @@ export const useAuthStore = create<AuthState>()(
       register: async (username, email, password, role) => {
         try {
           await api.post('/auth/register', { username, email, password, role })
-        } catch (err) {
+        } catch (err: unknown) {
           console.error('Registration failed', err)
           throw err
         }

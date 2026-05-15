@@ -34,17 +34,30 @@ _rag_instance: "RAGEngine | None" = None
 _MD_LINK    = re.compile(r'\[([^\]]*)\]\([^)]+\)')
 _MD_IMAGE   = re.compile(r'!\[[^\]]*\]\([^)]+\)')
 _BARE_URL   = re.compile(r'^https?://\S+\s*$', re.MULTILINE)
-_JINA_META  = re.compile(
-    r'^(Title|URL Source|Published Time|Markdown Content|Description|Image \d+):\s*.*$',
-    re.MULTILINE,
-)
 _HTML_TAG   = re.compile(r'<[^>]+>')
 _MULTI_NL   = re.compile(r'\n{3,}')
 
 
 def _clean_chunk(text: str) -> str:
     """Strip Jina reader noise from a single chunk so the LLM sees clean prose."""
-    text = _JINA_META.sub('', text)
+    # 1. Strip Jina metadata lines
+    meta_prefixes = (
+        "Title:", "URL Source:", "Published Time:", 
+        "Markdown Content:", "Description:", "Image "
+    )
+    lines = text.splitlines()
+    clean_lines = []
+    for line in lines:
+        if line.startswith(meta_prefixes) and ":" in line:
+            # Check if it's really an Image N: prefix
+            if line.startswith("Image ") and not re.match(r'^Image \d+:', line):
+                clean_lines.append(line)
+            continue
+        clean_lines.append(line)
+    
+    text = "\n".join(clean_lines)
+
+    # 2. Strip other markdown elements and clean up
     text = _MD_IMAGE.sub('', text)
     text = _MD_LINK.sub(r'\1', text)
     text = _BARE_URL.sub('', text)
@@ -61,6 +74,7 @@ class RAGEngine:
     def __init__(self, top_k: int = 5) -> None:
         settings = get_settings()
         self.top_k = top_k
+        self.max_hops = 3
         self.embedding_engine = get_embedding_engine()
         self.llm_engine = get_llm_engine()
         client = get_chroma_client()
@@ -116,17 +130,35 @@ class RAGEngine:
         embeddings = await self.embedding_engine.embed_documents(clean_chunks)
         ids = [f"{source_id}_chunk_{hashlib.md5(c.encode()).hexdigest()[:12]}" for c in clean_chunks]
 
-        # Upsert so re-indexing the same source doesn't fail on duplicate IDs.
-        for i in range(0, len(clean_chunks), self.batch_size):
+        # Deduplicate within this batch to prevent ChromaDB DuplicateIDError.
+        # Although we use .upsert, ChromaDB prohibits duplicate IDs within a single list.
+        seen_ids = set()
+        final_chunks = []
+        final_metadatas = []
+        final_embeddings = []
+        final_ids = []
+        
+        for i in range(len(ids)):
+            cid = ids[i]
+            if cid not in seen_ids:
+                seen_ids.add(cid)
+                final_chunks.append(clean_chunks[i])
+                final_metadatas.append(clean_metadatas[i])
+                final_embeddings.append(embeddings[i])
+                final_ids.append(cid)
+
+        # Upsert in batches.
+        for i in range(0, len(final_ids), self.batch_size):
             end = i + self.batch_size
             self.collection.upsert(
-                documents=clean_chunks[i:end],
-                embeddings=embeddings[i:end],
-                metadatas=clean_metadatas[i:end,
-                ids=ids[i:end],
+                documents=final_chunks[i:end],
+                embeddings=final_embeddings[i:end],
+                metadatas=final_metadatas[i:end],
+                ids=final_ids[i:end],
             )
-        logger.info("Indexed %d clean chunks for source '%s'", len(clean_chunks), source_title)
-        return len(clean_chunks)
+        logger.info("Indexed %d unique chunks (dropped %d duplicates) for source '%s'", 
+                    len(final_ids), len(ids) - len(final_ids), source_title)
+        return len(final_ids)
 
     # ------------------------------------------------------------------
     # Retrieval
@@ -205,88 +237,64 @@ class RAGEngine:
     async def generate_response(
         self, query: str, context_docs: list[dict[str, Any]]
     ) -> tuple[str, list[dict[str, Any]]]:
-        """Answer the query strictly from context_docs.
+        """Answer the query strictly from context_docs with agentic re-searching.
 
         Returns:
             (answer_text, source_list)
             answer_text is 'INSUFFICIENT_DOCUMENTATION' when docs don't help.
         """
-        if not context_docs:
-            return "I_DONT_KNOW", []
+        all_docs = list(context_docs)
+        seen_queries = {query.lower().strip()}
 
-        # ── Phase 1: Direct answer attempt ────────────────────────────
-        context = self._build_context(context_docs)
-        prompt  = self._build_answer_prompt(query, context)
-        answer  = await self.llm_engine.generate_response(
-            [{"role": "user", "content": prompt}]
-        )
-
-        if "I_DONT_KNOW" not in answer and "Mocked Response" not in answer:
-            logger.info("✅ [RAG] Answered on first pass")
-            return answer, self._build_source_list(context_docs)
-
-        # ── Phase 2: HyDE Search (Hypothetical Document Embeddings) ──
-        # If first pass failed, generate a hypothetical doc and search with it.
-        logger.info("🔍 [RAG] First pass failed. Attempting HyDE search...")
-        hyde_doc = await self._generate_hypothetical_doc(query)
-        hyde_docs = await self.search(hyde_doc, top_k=5)
-        
-        # Merge results from first search and HyDE search
-        seen_ids = {d["id"] for d in context_docs}
-        merged_docs = list(context_docs)
-        for d in hyde_docs:
-            if d["id"] not in seen_ids:
-                merged_docs.append(d)
-                seen_ids.add(d["id"])
-        
-        context_hyde = self._build_context(merged_docs)
-        answer_hyde = await self.llm_engine.generate_response(
-            [{"role": "user", "content": self._build_answer_prompt(query, context_hyde)}]
-        )
-        
-        if "I_DONT_KNOW" not in answer_hyde and "Mocked Response" not in answer_hyde:
-            logger.info("✅ [RAG] Answered via HyDE search")
-            return answer_hyde, self._build_source_list(merged_docs)
-
-
-        # ── Phase 2: One agentic re-search hop ────────────────────────
-        # Ask the LLM what to search for, then try once more.
-        hop_prompt = (
-            f"A user asked: \"{query}\"\n\n"
-            "The initial documentation search did not contain enough information.\n"
-            "Suggest ONE precise search query (5–10 words) that would find better documentation. "
-            "Reply with ONLY the search query, no explanation."
-        )
-        refined_query = await self.llm_engine.generate_response(
-            [{"role": "user", "content": hop_prompt}]
-        )
-        refined_query = refined_query.strip().strip('"\'')
-
-        if refined_query and refined_query != query and len(refined_query) < 200:
-            logger.info("🔍 [RAG] Hop: re-searching with refined query → '%s'", refined_query)
-            extra_docs = await self.search(refined_query, top_k=3)
-            # Merge, deduplicate by id
-            seen_ids = {d["id"] for d in context_docs}
-            all_docs = list(context_docs)
-            for d in extra_docs:
-                if d["id"] not in seen_ids:
-                    all_docs.append(d)
-                    seen_ids.add(d["id"])
-
-            # Sort by similarity, keep top 8
-            all_docs.sort(key=lambda x: x["similarity"], reverse=True)
-            all_docs = all_docs[:8]
-
-            context2 = self._build_context(all_docs)
-            answer2  = await self.llm_engine.generate_response(
-                [{"role": "user", "content": self._build_answer_prompt(query, context2)}]
+        for hop in range(self.max_hops):
+            context_text = self._build_context(all_docs)
+            prompt = AGENTIC_RAG_PROMPT.format(context=context_text, query=query)
+            
+            result = await self.llm_engine.generate_structured_response(
+                prompt, schema_hint=AGENTIC_RAG_SCHEMA
             )
-            if "I_DONT_KNOW" not in answer2 and "Mocked Response" not in answer2:
-                logger.info("✅ [RAG] Answered from documentation after hop")
-                return answer2, self._build_source_list(all_docs)
+            
+            action = result.get("action", "insufficient")
+            content = result.get("content", "")
 
+            if action == "answer":
+                logger.info("✅ [RAG] Answered on hop %d", hop)
+                return content, self._build_source_list(all_docs)
+            
+            if action == "search":
+                new_query = content.strip().lower()
+                if new_query in seen_queries or not new_query:
+                    logger.info("Stopping agentic RAG: duplicate or empty search query")
+                    break
+                
+                seen_queries.add(new_query)
+                logger.info("🔍 [RAG] Hop %d: re-searching for '%s'", hop, new_query)
+                
+                new_docs = await self.search(content, top_k=3)
+                
+                # Merge and deduplicate by ID
+                seen_ids = {d["id"] for d in all_docs}
+                added_count = 0
+                for d in new_docs:
+                    if d["id"] not in seen_ids:
+                        all_docs.append(d)
+                        seen_ids.add(d["id"])
+                        added_count += 1
+                
+                if added_count == 0:
+                    logger.info("Stopping agentic RAG: no new documentation found")
+                    break
+                
+                # Sort by similarity and keep top 8
+                all_docs.sort(key=lambda x: x.get("similarity", 0), reverse=True)
+                all_docs = all_docs[:8]
+                continue
+            
+            if action == "insufficient":
+                break
+        
         logger.warning("⚠️  [RAG] Could not answer from documentation for: %s", query[:80])
-        return "I_DONT_KNOW", self._build_source_list(context_docs)
+        return "INSUFFICIENT_DOCUMENTATION", self._build_source_list(all_docs)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -353,7 +361,7 @@ class RAGEngine:
         return {
             "response": response,
             "sources": sources,
-            "action": "resolve" if "INSUFFICIENT_DOCUMENTATION" not in response else "escalated",
+            "action": "resolve" if response != "INSUFFICIENT_DOCUMENTATION" else "escalated",
             "retrieval_score": round(avg_similarity, 4),
         }
 

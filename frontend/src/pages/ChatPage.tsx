@@ -6,7 +6,6 @@ import { useUserStore } from '../store/userStore'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Sparkles, MessageSquare, AlertTriangle, RefreshCcw } from 'lucide-react'
-import { TicketNotification } from '../components/TicketNotification'
 
 
 export const ChatPage = () => {
@@ -15,9 +14,6 @@ export const ChatPage = () => {
   const { messages, setSessionId, isStreaming, clearMessages, isConnected, fetchSessionHistory } = useUserStore()
   const { sendMessage, stopQuery } = useWebSocket(sessionId || null)
   const scrollRef = useRef<HTMLDivElement>(null)
-
-  const lastMessage = messages[messages.length - 1]
-  const isEscalated = lastMessage?.role === 'assistant' && lastMessage?.action === 'escalated'
 
 
 
@@ -107,12 +103,6 @@ export const ChatPage = () => {
                 {messages.map((msg) => (
                   <MessageBubble key={msg.id} message={msg} />
                 ))}
-                {isEscalated && (
-                  <TicketNotification 
-                    ticketId={`TKT-${sessionId?.toUpperCase()}`} 
-                    status="IN_REVIEW" 
-                  />
-                )}
               </div>
             )}
           </AnimatePresence>

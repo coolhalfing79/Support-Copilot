@@ -63,15 +63,22 @@ class ConfidenceService:
         Returns:
             Dict with ``score``, ``action``, and optionally ``follow_up_questions``.
         """
-        base_score = 0.20
+        # Default to 'searching' (0.40) so we at least try RAG.
+        # We only force clarification if the query is extremely short/vague.
+        base_score = 0.40
+
+        # Heuristic: very short queries (less than 3 words) are likely vague.
+        words = query.strip().split()
+        if len(words) < 3:
+            base_score = 0.15
 
         # Boost if the user already answered clarification questions.
         if follow_up_responses:
-            base_score = 0.50
+            base_score = max(base_score, 0.50)
 
         # Boost if there is meaningful conversation history.
-        if conversation_history and len(conversation_history) > 2:
-            base_score = min(base_score + 0.15, 0.70)
+        if conversation_history and len(conversation_history) > 1:
+            base_score = min(base_score + 0.10, 0.70)
 
         action = self._score_to_action(base_score)
 
@@ -165,7 +172,7 @@ class ConfidenceService:
             return 0.5
 
     def _score_to_action(self, score: float) -> str:
-        if score < self.LOW_THRESHOLD:
+        if score <= self.LOW_THRESHOLD:
             return "clarification"
         if score < self.HIGH_THRESHOLD:
             return "searching"

@@ -7,15 +7,28 @@ import {
   useEdgesState,
   MarkerType,
   Handle,
-  Position
+  Position,
+  type Node,
+  type Edge
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import axios from 'axios';
 import { FileText, Database, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+interface GraphNodeData extends Record<string, unknown> {
+  label: string;
+  status?: string;
+  chunk_count?: number;
+  content?: string;
+  url?: string;
+  isActive?: boolean;
+}
+
+type CustomNode = Node<GraphNodeData>;
+
 // --- Custom Nodes ---
-const RootNode = ({ data }: any) => (
+const RootNode = ({ data }: { data: GraphNodeData }) => (
   <div className="flex flex-col items-center justify-center w-24 h-24 bg-[#0f62fe] rounded-full text-white shadow-lg border-4 border-[#e5f0ff]">
     <Database className="w-6 h-6 mb-1" />
     <span className="text-[10px] font-bold text-center leading-tight px-2">{data.label}</span>
@@ -23,7 +36,7 @@ const RootNode = ({ data }: any) => (
   </div>
 );
 
-const SourceNode = ({ data }: any) => (
+const SourceNode = ({ data }: { data: GraphNodeData }) => (
   <div className={`flex flex-col p-3 rounded-xl border-2 transition-all w-48 shadow-sm ${data.isActive ? 'border-[#0f62fe] bg-[#f4f8ff] shadow-[#0f62fe]/20' : 'border-[#e0e0e0] bg-white'}`}>
     <Handle type="target" position={Position.Left} className="opacity-0" />
     <div className="flex items-start gap-2 mb-2">
@@ -48,19 +61,35 @@ interface KnowledgeGraphProps {
   activeSourceIds?: string[];
 }
 
+interface ServerNode {
+  id: string;
+  type: string;
+  label: string;
+  status?: string;
+  chunk_count?: number;
+  content?: string;
+  url?: string;
+}
+
+interface ServerEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
 export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ activeSourceIds = [] }) => {
-  const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<CustomNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedNodeData, setSelectedNodeData] = useState<any>(null);
+  const [selectedNodeData, setSelectedNodeData] = useState<GraphNodeData | null>(null);
 
   useEffect(() => {
     const fetchGraph = async () => {
       try {
         const response = await axios.get('http://localhost:8000/api/v1/knowledge/graph');
-        const data = response.data;
+        const data = response.data as { nodes: ServerNode[], edges: ServerEdge[] };
         
-        const newNodes = data.nodes.map((n: any, i: number) => {
+        const newNodes: CustomNode[] = data.nodes.map((n: ServerNode, i: number) => {
            if (n.type === 'root') {
                return {
                    id: n.id,
@@ -97,7 +126,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ activeSourceIds 
            }
         });
 
-        const newEdges = data.edges.map((e: any) => ({
+        const newEdges: Edge[] = data.edges.map((e: ServerEdge) => ({
             id: e.id,
             source: e.source,
             target: e.target,
@@ -108,7 +137,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ activeSourceIds 
 
         setNodes(newNodes);
         setEdges(newEdges);
-      } catch (err) {
+      } catch (err: unknown) {
         console.error("Failed to fetch graph", err);
       } finally {
         setLoading(false);
@@ -137,7 +166,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ activeSourceIds 
       }));
   }, [activeSourceIds, setNodes, setEdges]);
 
-  const onNodeClick = (_: React.MouseEvent, node: any) => {
+  const onNodeClick = (_: React.MouseEvent, node: CustomNode) => {
       if (node.id !== 'root') {
           setSelectedNodeData(node.data);
       }

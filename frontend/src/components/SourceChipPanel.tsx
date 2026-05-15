@@ -1,12 +1,12 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { X, FileText, ExternalLink, BrainCircuit, Search, Plus, Minus } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import type { SourceInfo } from '../store/userStore'
 import axios from 'axios'
 
 // Utility to strip markdown syntax from strings
-const stripMarkdown = (s: string) => s.replace(/^[#*\-+\s]+/, '').replace(/[\*_`]/g, '').trim()
+const stripMarkdown = (s: string) => s.replace(/^[#*\-+\s]+/, '').replace(/[*_`]/g, '').trim()
 
 // Blocklist for navigation headings that should never be highlighted
 const NAV_HEADINGS = ['on this page', 'overview', 'introduction', 'table of contents', 'contents', 'in this section']
@@ -49,8 +49,6 @@ function inferScore(source: SourceInfo): number {
   return 0.55
 }
 
-
-
 /** Derive a section name from the first meaningful line of the excerpt */
 function deriveSection(excerpt: string): string {
   if (!excerpt) return ''
@@ -59,10 +57,6 @@ function deriveSection(excerpt: string): string {
   if (looksLikeCode(firstLine) || firstLine.length < 3) return 'Component reference'
   return firstLine.length > 50 ? firstLine.slice(0, 50) + '…' : firstLine
 }
-
-
-
-
 
 /* ------------------------------------------------------------------ */
 /*  Highlighted excerpt                                                */
@@ -107,7 +101,7 @@ interface SourceChipsProps {
   onChipClick: (index: number) => void
 }
 
-const chipVariants: any = {
+const chipVariants: Variants = {
   hidden: { opacity: 0, y: 6 },
   visible: (i: number) => ({
     opacity: 1,
@@ -163,10 +157,14 @@ interface D3Node {
   matched: boolean
   tooltip: string
   content?: string
+  width?: number
+  height?: number
   x?: number
   y?: number
   vx?: number
   vy?: number
+  fx?: number | null
+  fy?: number | null
 }
 
 interface D3Edge {
@@ -175,6 +173,7 @@ interface D3Edge {
   type: 'retrieval' | 'chunk'
 }
 
+
 interface D3KnowledgeGraphProps {
   nodes: D3Node[]
   edges: D3Edge[]
@@ -182,29 +181,35 @@ interface D3KnowledgeGraphProps {
   onNodeToggle: (id: string | null) => void
 }
 
-function useD3(callback: (d3: any) => void, dependencies: any[]) {
+// Minimal D3 types since we're using a script tag
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type D3Any = any;
+
+function useD3(callback: (d3: D3Any) => void, dependencies: unknown[]) {
   useEffect(() => {
     let isMounted = true
-    if ((window as any).d3) {
-      callback((window as any).d3)
+    const windowWithD3 = window as unknown as { d3: D3Any }
+    if (windowWithD3.d3) {
+      callback(windowWithD3.d3)
       return
     }
     const script = document.createElement('script')
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js'
     script.async = true
     script.onload = () => {
-      if (isMounted) callback((window as any).d3)
+      if (isMounted) callback(windowWithD3.d3)
     }
     document.head.appendChild(script)
     return () => { isMounted = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, dependencies)
 }
 
 function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3KnowledgeGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const zoomRef = useRef<any>(null)
-  const [zoomLevel, setZoomLevel] = useState("1.0x") // will be updated after fit
+  const zoomRef = useRef<D3Any>(null)
+  const [zoomLevel, setZoomLevel] = useState("1.0x") 
   const [tooltip, setTooltip] = useState<{ show: boolean, text: string, x: number, y: number }>({ show: false, text: '', x: 0, y: 0 })
 
   useD3((d3) => {
@@ -219,13 +224,13 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
     const g = svg.append("g")
     const zoom = d3.zoom()
       .scaleExtent([0.5, 3])
-      .on("zoom", (e: any) => {
+      .on("zoom", (e: D3Any) => {
         g.attr("transform", e.transform)
         setZoomLevel(e.transform.k.toFixed(1) + "x")
       })
     zoomRef.current = zoom
     svg.call(zoom)
-      .on("click", (e: any) => {
+      .on("click", (e: MouseEvent) => {
         if (e.target === svgRef.current) {
           onNodeToggle(null)
         }
@@ -266,8 +271,8 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
     // Phase 1 Simulation (Non-content nodes)
     const baseNodes = nodes.filter(n => n.type !== 'content' && n.type !== 'more')
     const baseEdges = edges.filter(e => {
-        const sId = typeof e.source === 'string' ? e.source : (e.source as any).id
-        const tId = typeof e.target === 'string' ? e.target : (e.target as any).id
+        const sId = typeof e.source === 'string' ? e.source : (e.source as unknown as D3Node).id
+        const tId = typeof e.target === 'string' ? e.target : (e.target as unknown as D3Node).id
         return baseNodes.some(n => n.id === sId) && baseNodes.some(n => n.id === tId)
     })
 
@@ -279,8 +284,8 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
     })
 
     const simulation = d3.forceSimulation(baseNodes)
-      .force("link", d3.forceLink(baseEdges).id((d: any) => d.id).distance((d: any) => d.type === 'retrieval' ? 140 : 160))
-      .force("collide", d3.forceCollide().radius((d: any) => {
+      .force("link", d3.forceLink(baseEdges).id((d: D3Node) => d.id).distance((d: D3Edge) => d.type === 'retrieval' ? 140 : 160))
+      .force("collide", d3.forceCollide().radius((d: D3Node) => {
           if (d.type === 'hub') return 65;
           if (d.type === 'source') return 50;
           const cleanLabel = stripMarkdown(d.label)
@@ -288,16 +293,16 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
           return w / 2 + 16;
       }))
       .force("charge", d3.forceManyBody().strength(-280))
-      .force("x", d3.forceX((d: any) => {
+      .force("x", d3.forceX((d: D3Node) => {
           if (d.type === 'hub') return 80;
           if (d.type === 'source') return 220;
           return 380;
       }).strength(0.5))
-      .force("y", d3.forceY((d: any) => {
+      .force("y", d3.forceY((d: D3Node) => {
          if (d.type === 'hub' || d.type === 'source') return height / 2;
          const idx = chunkNodes.indexOf(d);
          return height / 2 + (idx - (chunkNodes.length - 1) / 2) * 55;
-      }).strength((d: any) => (d.type === 'hub' || d.type === 'source') ? 0.9 : 0.25))
+      }).strength((d: D3Node) => (d.type === 'hub' || d.type === 'source') ? 0.9 : 0.25))
 
     simulation.tick(500)
     simulation.stop()
@@ -310,21 +315,21 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
         contentNode.y = parentChunk.y || 0
         
         const phase2Simulation = d3.forceSimulation(nodes.filter(n => n.type !== 'more'))
-          .force("link", d3.forceLink(edges).id((d: any) => d.id).distance((d: any) => d.target.type === 'content' ? 120 : 160))
-          .force("collide", d3.forceCollide().radius((d: any) => d.type === 'content' ? 115 : 110))
+          .force("link", d3.forceLink(edges).id((d: D3Node) => d.id).distance((d: D3Edge) => (d.target as unknown as D3Node).type === 'content' ? 120 : 160))
+          .force("collide", d3.forceCollide().radius((d: D3Node) => d.type === 'content' ? 115 : 110))
           .force("charge", d3.forceManyBody().strength(-300))
-          .force("x", d3.forceX((d: any) => {
+          .force("x", d3.forceX((d: D3Node) => {
             if (d.type === 'content') return (parentChunk.x || 0) + 220;
             if (d.type === 'hub') return 80;
             if (d.type === 'source') return 220;
             return 380;
           }).strength(0.5))
-          .force("y", d3.forceY((d: any) => {
+          .force("y", d3.forceY((d: D3Node) => {
             if (d.type === 'content') return parentChunk.y || height / 2;
             if (d.type === 'hub' || d.type === 'source') return height / 2;
             const idx = chunkNodes.indexOf(d);
             return height / 2 + (idx - (chunkNodes.length - 1) / 2) * 55;
-          }).strength((d: any) => d.type === 'content' ? 0.6 : (d.type === 'chunk' ? 0.25 : 0.9)))
+          }).strength((d: D3Node) => d.type === 'content' ? 0.6 : (d.type === 'chunk' ? 0.25 : 0.9)))
 
         phase2Simulation.tick(200)
         phase2Simulation.stop()
@@ -337,14 +342,16 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
       .selectAll("path")
       .data(edges)
       .enter().append("path")
-      .attr("class", (d: any) => `link ${d.source.id} ${d.target.id}`)
+      .attr("class", (d: D3Edge) => `link ${(d.source as unknown as D3Node).id} ${(d.target as unknown as D3Node).id}`)
       .attr("fill", "none")
-      .attr("stroke", (d: any) => d.type === 'retrieval' ? "#3B5BDB" : "#2EAF7D")
-      .attr("stroke-width", (d: any) => d.type === 'retrieval' ? 2 : 1.5)
-      .attr("stroke-dasharray", (d: any) => d.type === 'retrieval' ? "6,3" : "none")
-      .attr("marker-end", (d: any) => d.type === 'retrieval' ? "url(#arrow-retrieval)" : "url(#arrow-chunk)")
-      .attr("d", (d: any) => {
-        return `M${d.source.x},${d.source.y} L${d.target.x},${d.target.y}`
+      .attr("stroke", (d: D3Edge) => d.type === 'retrieval' ? "#3B5BDB" : "#2EAF7D")
+      .attr("stroke-width", (d: D3Edge) => d.type === 'retrieval' ? 2 : 1.5)
+      .attr("stroke-dasharray", (d: D3Edge) => d.type === 'retrieval' ? "6,3" : "none")
+      .attr("marker-end", (d: D3Edge) => d.type === 'retrieval' ? "url(#arrow-retrieval)" : "url(#arrow-chunk)")
+      .attr("d", (d: D3Edge) => {
+        const s = d.source as unknown as D3Node;
+        const t = d.target as unknown as D3Node;
+        return `M${s.x},${s.y} L${t.x},${t.y}`
       })
 
     // Draw Nodes
@@ -353,11 +360,11 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
       .selectAll("g")
       .data(nodes.filter(n => n.type !== 'more'))
       .enter().append("g")
-      .attr("transform", (d: any) => `translate(${d.x},${d.y})`)
-      .style("cursor", (d: any) => d.type === 'chunk' ? 'pointer' : 'default')
+      .attr("transform", (d: D3Node) => `translate(${d.x},${d.y})`)
+      .style("cursor", (d: D3Node) => d.type === 'chunk' ? 'pointer' : 'default')
 
     // Shapes
-    nodeGroup.each(function(this: any, d: any) {
+    nodeGroup.each(function(this: SVGElement, d: D3Node) {
       const el = d3.select(this)
       if (d.type === 'hub') {
         el.append("circle").attr("r", 52).attr("fill", "#3B5BDB").attr("fill-opacity", 1)
@@ -365,17 +372,17 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
         el.append("rect").attr("width", 80).attr("height", 36).attr("x", -40).attr("y", -18).attr("rx", 8).attr("fill", "#0E7490").attr("fill-opacity", 1)
       } else if (d.type === 'chunk') {
         const cleanLabel = stripMarkdown(d.label)
-        const width = Math.max(110, cleanLabel.length * 7.5 + 24)
-        const height = d.matched ? 30 : 28
+        const nodeWidth = Math.max(110, cleanLabel.length * 7.5 + 24)
+        const nodeHeight = d.matched ? 30 : 28
         
-        d.width = width
-        d.height = height
+        d.width = nodeWidth
+        d.height = nodeHeight
 
         el.append("rect")
-          .attr("width", width)
-          .attr("height", height)
-          .attr("x", -width/2)
-          .attr("y", -height/2)
+          .attr("width", nodeWidth)
+          .attr("height", nodeHeight)
+          .attr("x", -nodeWidth/2)
+          .attr("y", -nodeHeight/2)
           .attr("rx", d.matched ? 15 : 14)
           .attr("fill", d.matched ? "#2EAF7D" : "#D4CFC6")
           .attr("fill-opacity", 1)
@@ -384,19 +391,19 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
         if (d.matched) {
           el.append("circle")
             .attr("r", 4)
-            .attr("cx", width/2 + 4)
-            .attr("cy", -height/2 - 4)
+            .attr("cx", nodeWidth/2 + 4)
+            .attr("cy", -nodeHeight/2 - 4)
             .attr("fill", "#1A7A54")
             .attr("fill-opacity", 1)
         }
       } else if (d.type === 'content') {
-        const width = 200
-        const height = 80 // Base height, will be clamped by line-clamp
+        const nodeWidth = 200
+        const nodeHeight = 80 
         el.append("rect")
-          .attr("width", width)
-          .attr("height", height)
-          .attr("x", -width/2)
-          .attr("y", -height/2)
+          .attr("width", nodeWidth)
+          .attr("height", nodeHeight)
+          .attr("x", -nodeWidth/2)
+          .attr("y", -nodeHeight/2)
           .attr("rx", 8)
           .attr("fill", "#F0FDF9")
           .attr("fill-opacity", 1)
@@ -404,10 +411,10 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
           .attr("stroke-width", 1.5)
 
         const fo = el.append("foreignObject")
-          .attr("x", -width/2 + 10)
-          .attr("y", -height/2 + 10)
-          .attr("width", width - 20)
-          .attr("height", height - 20)
+          .attr("x", -nodeWidth/2 + 10)
+          .attr("y", -nodeHeight/2 + 10)
+          .attr("width", nodeWidth - 20)
+          .attr("height", nodeHeight - 20)
 
         fo.append("xhtml:div")
           .style("font-family", "sans-serif")
@@ -424,8 +431,8 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
 
     // Node Labels
     nodeGroup.append("text")
-      .text((d: any) => {
-        if (d.type === 'more') return "" // Safety if filter missed it
+      .text((d: D3Node) => {
+        if (d.type === 'more') return "" 
         const clean = stripMarkdown(d.label)
         if (d.type === 'hub') return "Knowledge Base"
         if (d.type === 'source') return clean
@@ -433,7 +440,7 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
       })
       .attr("text-anchor", "middle")
       .attr("dy", 4)
-      .attr("fill", (d: any) => {
+      .attr("fill", (d: D3Node) => {
         if (d.type === 'hub') return "#E8EEFF"
         if (d.type === 'source') return "#E0F7FA"
         return d.matched ? "#0A4A33" : "#7A756C"
@@ -441,15 +448,22 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
       .attr("font-size", "10px")
       .attr("font-weight", "bold")
       .attr("font-family", "sans-serif")
-      .style("visibility", (d: any) => d.type === 'content' ? "hidden" : "visible")
+      .style("visibility", (d: D3Node) => d.type === 'content' ? "hidden" : "visible")
 
     // Hover interactions
-    nodeGroup.on("mouseover", function(e: any, d: any) {
-      // Highlight connected nodes and edges, dim others
-      nodeGroup.style("opacity", (n: any) => (n.id === d.id || isConnected(n, d)) ? 1 : 0.3)
-      link.style("opacity", (l: any) => (l.source.id === d.id || l.target.id === d.id) ? 1 : 0.15)
-      // Emphasize connected edges
-      link.filter((l: any) => l.source.id === d.id || l.target.id === d.id)
+    nodeGroup.on("mouseover", function(this: SVGElement, e: MouseEvent, d: D3Node) {
+      nodeGroup.style("opacity", (n: D3Node) => (n.id === d.id || isConnected(n, d)) ? 1 : 0.3)
+      link.style("opacity", (l: D3Edge) => {
+          const s = l.source as unknown as D3Node;
+          const t = l.target as unknown as D3Node;
+          return (s.id === d.id || t.id === d.id) ? 1 : 0.15
+      })
+      
+      link.filter((l: D3Edge) => {
+          const s = l.source as unknown as D3Node;
+          const t = l.target as unknown as D3Node;
+          return s.id === d.id || t.id === d.id
+      })
         .attr("stroke-width", 3)
         .attr("stroke-opacity", 1)
       
@@ -463,9 +477,9 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
     }).on("mouseout", function() {
       nodeGroup.style("opacity", 1)
       link.style("opacity", 1)
-      link.attr("stroke-width", (d: any) => d.type === 'retrieval' ? 2 : 1.5)
+      link.attr("stroke-width", (d: D3Edge) => d.type === 'retrieval' ? 2 : 1.5)
       setTooltip({ show: false, text: '', x: 0, y: 0 })
-    }).on("click", function(e: any, d: any) {
+    }).on("click", function(this: SVGElement, e: MouseEvent, d: D3Node) {
       e.stopPropagation()
       if (d.type === 'chunk') {
         onNodeToggle(expandedNodeId === d.id ? null : d.id)
@@ -474,11 +488,14 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
       }
     })
 
-    function isConnected(a: any, b: any) {
-      return edges.some((e: any) => (e.source.id === a.id && e.target.id === b.id) || (e.source.id === b.id && e.target.id === a.id))
+    function isConnected(a: D3Node, b: D3Node) {
+      return edges.some((e: D3Edge) => {
+          const s = e.source as unknown as D3Node;
+          const t = e.target as unknown as D3Node;
+          return (s.id === a.id && t.id === b.id) || (s.id === b.id && t.id === a.id)
+      })
     }
 
-    // Fit view to container with padding - exclude nodes without coords (like 'more' type)
     const validNodes = nodes.filter(n => typeof n.x === 'number' && typeof n.y === 'number')
     if (validNodes.length === 0) return
 
@@ -503,14 +520,12 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
     <div ref={containerRef} className="w-full h-full relative bg-transparent overflow-hidden group" style={{ isolation: 'isolate' }}>
       <svg ref={svgRef} className="w-full h-full" />
       
-      {/* UI Controls Container (Bottom Left) */}
       <div className="absolute bottom-4 left-4 flex flex-col items-start gap-4">
-        {/* More Pill */}
         {moreNode && (
           <motion.button
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
-            onClick={(e: any) => {
+            onClick={(e: React.MouseEvent) => {
               e.stopPropagation()
               onNodeToggle('SHOW_MORE_ACTION')
             }}
@@ -520,12 +535,12 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
           </motion.button>
         )}
 
-        {/* Zoom Controls */}
         <div className="flex flex-col gap-2">
           <button 
             onClick={() => {
               if (svgRef.current && zoomRef.current) {
-                 (window as any).d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 1.3)
+                 const d3 = (window as unknown as { d3: D3Any }).d3
+                 d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 1.3)
               }
             }}
             className="p-1.5 bg-white shadow-md border border-[#e0e0e0] rounded-md hover:bg-[#EEF2FF] text-[#3B5BDB] transition-colors"
@@ -536,7 +551,8 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
           <button 
             onClick={() => {
               if (svgRef.current && zoomRef.current) {
-                 (window as any).d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 0.7)
+                const d3 = (window as unknown as { d3: D3Any }).d3
+                d3.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 0.7)
               }
             }}
             className="p-1.5 bg-white shadow-md border border-[#e0e0e0] rounded-md hover:bg-[#EEF2FF] text-[#3B5BDB] transition-colors"
@@ -551,7 +567,6 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
         {zoomLevel}
       </div>
       
-      {/* Tooltip Overlay */}
       <AnimatePresence>
         {tooltip.show && (
           <motion.div
@@ -570,7 +585,7 @@ function D3KnowledgeGraph({ nodes, edges, expandedNodeId, onNodeToggle }: D3Know
   )
 }
 
-function GraphDataWrapper({ activeSourceId, source, answerContent }: { activeSourceId: string, source: any, answerContent?: string }) {
+function GraphDataWrapper({ activeSourceId, source, answerContent }: { activeSourceId: string, source: SourceInfo | null, answerContent?: string }) {
   const [nodes, setNodes] = useState<D3Node[]>([])
   const [edges, setEdges] = useState<D3Edge[]>([])
   const [loading, setLoading] = useState(true)
@@ -585,7 +600,7 @@ function GraphDataWrapper({ activeSourceId, source, answerContent }: { activeSou
         if (!isMounted) return
         const data = response.data
 
-        const activeSourceNode = data.nodes.find((n: any) => n.id === activeSourceId)
+        const activeSourceNode = data.nodes.find((n: { id: string }) => n.id === activeSourceId)
         if (!activeSourceNode) {
             setLoading(false)
             return
@@ -600,7 +615,10 @@ function GraphDataWrapper({ activeSourceId, source, answerContent }: { activeSou
             { source: 'root', target: activeSourceId, type: 'retrieval' }
         ]
 
-        const chunks = activeSourceNode.chunks || []
+        interface Chunk {
+          excerpt: string;
+        }
+        const chunks = (activeSourceNode.chunks as Chunk[]) || []
         const totalChunks = chunks.length > 0 ? chunks.length : (activeSourceNode.chunk_count || 0)
         const initialLimit = 7
         const displayLimit = showAll ? Math.min(totalChunks, 20) : initialLimit
@@ -680,12 +698,11 @@ function GraphDataWrapper({ activeSourceId, source, answerContent }: { activeSou
                 matched: false,
                 tooltip: 'Click to expand all chunks'
             })
-            // Edge removed for more-pill as requested in Fix 3
         }
 
         setNodes(newNodes)
         setEdges(newEdges)
-      } catch (err) {
+      } catch (err: unknown) {
         console.error("Failed to fetch graph", err)
       } finally {
         if (isMounted) setLoading(false)
@@ -693,7 +710,7 @@ function GraphDataWrapper({ activeSourceId, source, answerContent }: { activeSou
     }
     fetchGraph()
     return () => { isMounted = false }
-  }, [activeSourceId, source, showAll, expandedNodeId])
+  }, [activeSourceId, source, showAll, expandedNodeId, answerContent])
 
   if (loading) {
       return <div className="w-full h-full flex items-center justify-center text-xs text-[#a8a8a8]">Loading Graph...</div>
@@ -730,7 +747,6 @@ interface SourceDetailPanelProps {
 export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerContent }: SourceDetailPanelProps) => {
   const panelRef = useRef<HTMLDivElement>(null)
 
-  // Close on Escape
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') onClose()
   }, [onClose])
@@ -742,7 +758,6 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
     }
   }, [isOpen, handleKeyDown])
 
-  // Close on outside click
   const handleBackdropClick = useCallback((e: React.MouseEvent) => {
     if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
       onClose()
@@ -754,26 +769,16 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
   const score = inferScore(source)
   const pct = Math.round(score * 100)
 
-  // Determine bullet list from chunk
   const bullets = source.chunk_excerpt
     ? source.chunk_excerpt.split(/[.\n]+/).filter(s => s.trim().length > 10).slice(0, 6)
-    : [
-        "Escape Hatches",
-        "Referencing Values with Refs",
-        "Manipulating the DOM with Refs",
-        "Synchronizing with Effects",
-        "You Might Not Need an Effect",
-        "Lifecycle of Reactive Effects"
-      ]
+    : []
 
   return (
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop */}
           <div className="fixed inset-0 z-40 bg-black/5" onClick={handleBackdropClick} />
 
-          {/* Panel */}
           <motion.div
             ref={panelRef}
             initial={{ x: '100%' }}
@@ -782,11 +787,10 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
             transition={{ type: 'tween', duration: 0.3, ease: 'easeOut' }}
             className="fixed top-0 right-0 z-50 h-full w-[480px] bg-white flex flex-col shadow-2xl border-l border-[#e0e0e0] max-sm:w-full"
           >
-            {/* ── TOP SECTION (60%): Knowledge Graph ──────────────── */}
             <div className="h-[60%] w-full relative" style={{
-              background: 'var(--color-background-secondary, #f4f4f4)',
-              border: '0.5px solid var(--color-border-tertiary, #e0e0e0)',
-              borderRadius: 'var(--border-radius-lg, 8px)',
+              background: '#f4f4f4',
+              border: '0.5px solid #e0e0e0',
+              borderRadius: '8px',
               overflow: 'hidden'
             }}>
               <GraphDataWrapper activeSourceId={source.source_id} source={source} answerContent={answerContent} />
@@ -798,13 +802,11 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
               </button>
             </div>
 
-            {/* ── BOTTOM SECTION (40%): RAG Detail Panel ──────────── */}
             <div className="h-[40%] flex flex-col bg-white">
               <div className="flex-1 overflow-y-auto p-5">
                 
-                {/* 1. WHY THIS WAS RETRIEVED */}
                 <section className="mb-6">
-                  <h4 className="mb-2" style={{ fontVariantCaps: 'small-caps', fontSize: '11px', letterSpacing: '0.06em', color: 'var(--color-text-tertiary, #8d8d8d)' }}>Why this was retrieved</h4>
+                  <h4 className="mb-2" style={{ fontVariantCaps: 'small-caps', fontSize: '11px', letterSpacing: '0.06em', color: '#8d8d8d' }}>Why this was retrieved</h4>
                   <div className="flex items-start gap-2">
                     <Search className="w-4 h-4 text-[#a8a8a8] shrink-0 mt-0.5" />
                     <p className="text-sm text-[#393939] italic">
@@ -813,11 +815,10 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
                   </div>
                 </section>
 
-                <div style={{ borderBottom: '0.5px solid var(--color-border-tertiary, #e0e0e0)', marginBottom: '24px' }} />
+                <div style={{ borderBottom: '0.5px solid #e0e0e0', marginBottom: '24px' }} />
 
-                {/* 2. MATCH SCORE */}
                 <section className="mb-6">
-                  <h4 className="mb-2" style={{ fontVariantCaps: 'small-caps', fontSize: '11px', letterSpacing: '0.06em', color: 'var(--color-text-tertiary, #8d8d8d)' }}>Match Score</h4>
+                  <h4 className="mb-2" style={{ fontVariantCaps: 'small-caps', fontSize: '11px', letterSpacing: '0.06em', color: '#8d8d8d' }}>Match Score</h4>
                   <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs text-[#525252] font-medium">Relevance</span>
                     <span className="text-xs font-bold text-[#24a148]">{pct}%</span>
@@ -827,11 +828,10 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
                   </div>
                 </section>
 
-                <div style={{ borderBottom: '0.5px solid var(--color-border-tertiary, #e0e0e0)', marginBottom: '24px' }} />
+                <div style={{ borderBottom: '0.5px solid #e0e0e0', marginBottom: '24px' }} />
 
-                {/* 3. RELEVANT EXCERPT */}
                 <section className="mb-6">
-                  <h4 className="mb-2" style={{ fontVariantCaps: 'small-caps', fontSize: '11px', letterSpacing: '0.06em', color: 'var(--color-text-tertiary, #8d8d8d)' }}>Relevant Excerpt</h4>
+                  <h4 className="mb-2" style={{ fontVariantCaps: 'small-caps', fontSize: '11px', letterSpacing: '0.06em', color: '#8d8d8d' }}>Relevant Excerpt</h4>
                   <ul className="list-disc pl-5 space-y-1.5">
                     {bullets.map((b, i) => {
                       const cleanB = stripMarkdown(b)
@@ -845,11 +845,10 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
                   </ul>
                 </section>
 
-                <div style={{ borderBottom: '0.5px solid var(--color-border-tertiary, #e0e0e0)', marginBottom: '24px' }} />
+                <div style={{ borderBottom: '0.5px solid #e0e0e0', marginBottom: '24px' }} />
 
-                {/* 4. USED TO ANSWER */}
                 <section className="mb-6">
-                  <h4 className="mb-2" style={{ fontVariantCaps: 'small-caps', fontSize: '11px', letterSpacing: '0.06em', color: 'var(--color-text-tertiary, #8d8d8d)' }}>Used to answer</h4>
+                  <h4 className="mb-2" style={{ fontVariantCaps: 'small-caps', fontSize: '11px', letterSpacing: '0.06em', color: '#8d8d8d' }}>Used to answer</h4>
                   {(!answerContent || /general knowledge|does not contain information|not mentioned in the provided|not found in the provided|cannot answer this based on/i.test(answerContent)) ? (
                     <p className="text-xs text-[#da1e28] leading-relaxed">
                       This source was retrieved but <span className="font-semibold">not used</span> for the response due to insufficient relevance.
@@ -863,17 +862,15 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
 
               </div>
 
-              {/* Footer */}
               <div className="px-5 py-3 border-t border-[#e0e0e0] bg-[#f4f4f4] flex items-center justify-between shrink-0">
                 {(() => {
                   let finalUrl = source.url || '#'
                   if (source.chunk_excerpt && finalUrl !== '#') {
                     const section = deriveSection(source.chunk_excerpt)
                     if (section) {
-                      // Robust slugify: lower, strip non-alphanumeric, limit to 40 chars
                       const anchor = section.toLowerCase()
                         .replace(/[^\w\s-]/g, '')
-                        .split(/\s+/).slice(0, 5).join('-') // First 5 words
+                        .split(/\s+/).slice(0, 5).join('-')
                         .substring(0, 40)
                       finalUrl = `${finalUrl.split('#')[0]}#${anchor}`
                     }
@@ -901,4 +898,3 @@ export const SourceDetailPanel = ({ source, isOpen, onClose, userQuery, answerCo
     </AnimatePresence>
   )
 }
-

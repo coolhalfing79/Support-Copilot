@@ -105,11 +105,34 @@ async def get_session(session_id: UUID, db: DbSession, current_user: CurrentUser
     if str(session.user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
         
+    messages_response = []
+    for m in session.messages:
+        resp = MessageResponse.model_validate(m)
+        if m.action == "escalated":
+            # Find the associated ticket
+            ticket = next((t for t in session.tickets), None)
+            if ticket:
+                from schemas.chat import TicketInfo
+                from config.settings import get_settings
+                settings = get_settings()
+                jira_base_url = (settings.JIRA_URL or "").rstrip("/")
+                jira_url = f"{jira_base_url}/browse/{ticket.jira_issue_key}" if ticket.jira_issue_key and jira_base_url else None
+                
+                resp.ticket = TicketInfo(
+                    id=str(ticket.id),
+                    jira_issue_key=ticket.jira_issue_key,
+                    jira_url=jira_url,
+                    summary=ticket.summary,
+                    severity=ticket.severity.value if hasattr(ticket.severity, "value") else str(ticket.severity),
+                    status=ticket.status.value if hasattr(ticket.status, "value") else str(ticket.status),
+                )
+        messages_response.append(resp)
+        
     return SessionDetailResponse(
         id=session.id,
         title=session.title,
         status=session.status,
         created_at=session.created_at,
         updated_at=session.updated_at,
-        messages=[MessageResponse.model_validate(m) for m in session.messages],
+        messages=messages_response,
     )

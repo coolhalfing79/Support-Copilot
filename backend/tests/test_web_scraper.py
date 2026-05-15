@@ -61,8 +61,18 @@ async def test_crawl_website_scope_and_limit():
     start_url = "https://example.com/docs/"
     
     # Page 1 has link to Page 2
-    jina_page1 = "Page 1 [link](https://example.com/docs/page2) - Long enough to pass filter"
-    jina_page2 = "Page 2 Content - This is also long enough to pass the 50 character limit filter"
+    jina_page1 = (
+        "Page 1 Title\n\n"
+        "This is the first paragraph of the page content. It contains a [link](https://example.com/docs/page2).\n"
+        "We need at least three lines of content to pass the quality filter heuristic.\n"
+        "The scraper is now more strict about what it considers a valid documentation page."
+    )
+    jina_page2 = (
+        "Page 2 Title\n\n"
+        "This is the second page of our documentation. It contains useful information for the support copilot.\n"
+        "We are testing the recursive crawling capabilities of the web scraper utility.\n"
+        "Ensure that all pages within the same path prefix are correctly discovered and indexed."
+    )
 
     async def mock_get(url, **kwargs):
         resp = MagicMock()
@@ -77,16 +87,24 @@ async def test_crawl_website_scope_and_limit():
         results = await scraper.crawl_website(start_url, max_pages=5)
         
         assert len(results) == 2
-        assert any("Page 2 Content" in r for r in results)
-        assert any("Page 1" in r for r in results)
+        assert any("Page 2 Title" in r["content"] for r in results)
+        assert any("Page 1 Title" in r["content"] for r in results)
 
 @pytest.mark.asyncio
 async def test_crawl_storybook_heuristic():
     scraper = WebScraper(polite_delay=0)
     url = "https://example.com/?path=/docs/component--docs"
     
-    jina_shell = "Storybook Shell Markdown - Long enough to pass filter"
-    jina_iframe = "Actual Component Documentation - Also long enough to pass filter"
+    jina_shell = (
+        "Storybook Shell Title\n\n"
+        "This is the shell for the Storybook documentation. It often contains navigation and global controls.\n"
+        "The actual content is usually loaded via an iframe for each individual component doc."
+    )
+    jina_iframe = (
+        "Component Documentation Title\n\n"
+        "This is the actual documentation content for the component. It contains detailed specifications.\n"
+        "We are verifying that the Storybook heuristic correctly pulls content from the associated iframe URL."
+    )
 
     async def mock_get(url, **kwargs):
         resp = MagicMock()
@@ -100,5 +118,5 @@ async def test_crawl_storybook_heuristic():
     with patch("httpx.AsyncClient.get", side_effect=mock_get):
         results = await scraper.crawl_website(url, max_pages=1)
         assert len(results) == 1
-        assert "Actual Component Documentation" in results[0]
-        assert "Storybook Shell Markdown" in results[0]
+        assert "Component Documentation Title" in results[0]["content"]
+        assert "Storybook Shell Title" in results[0]["content"]

@@ -29,6 +29,7 @@ from schemas.chat import (
 )
 from services.confidence_service import ConfidenceService
 from services.ticket_service import TicketService
+from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +91,14 @@ class ChatService:
         return session
 
     async def get_session(self, db: AsyncSession, session_id: str) -> Session | None:
-        """Load a session with its messages eagerly loaded."""
+        """Load a session with its messages and tickets eagerly loaded."""
         result = await db.execute(
             select(Session)
             .where(Session.id == session_id)
-            .options(selectinload(Session.messages))
+            .options(
+                selectinload(Session.messages),
+                selectinload(Session.tickets)
+            )
         )
         return result.scalar_one_or_none()
 
@@ -120,6 +124,7 @@ class ChatService:
         content: str,
         confidence_score: float | None = None,
         sources: list[dict[str, Any]] | None = None,
+        action: str | None = None,
     ) -> Message:
         message = Message(
             session_id=session_id,
@@ -127,6 +132,7 @@ class ChatService:
             content=content,
             confidence_score=confidence_score,
             sources=sources,
+            action=action,
         )
         db.add(message)
         await db.flush()
@@ -206,6 +212,7 @@ class ChatService:
             msg = await self._add_message(
                 db, session_id, "assistant", text,
                 confidence_score=initial["score"],
+                action=Action.clarification,
             )
             return ChatResponse(
                 session_id=str(session_id),
@@ -246,6 +253,7 @@ class ChatService:
                     db, session_id, "assistant", response_text,
                     confidence_score=post["score"],
                     sources=sources,
+                    action=Action.resolve,
                 )
                 return ChatResponse(
                     session_id=str(session_id),
@@ -256,42 +264,46 @@ class ChatService:
                     ticket=None,
                 )
 
-        # ── 7. Fallback to base LLM ──────────────────────────────────────
-        logger.info("RAG returned INSUFFICIENT_DOCUMENTATION — falling back to base LLM")
-        fallback_prompt = (
-            "Answer the following technical support or programming question based on your general knowledge. "
-            "If you do not know the answer or are not highly confident, you MUST reply EXACTLY with 'I_DONT_KNOW'.\n\n"
-            f"Question: {user_message}"
+        # ── 7. Fallback to base LLM (DISABLED - Escalating instead) ──────
+        logger.info("RAG returned INSUFFICIENT_DOCUMENTATION or low confidence — Escalating to Jira")
+        return await self._escalate(
+            db, session_id, user_message, history, "high"
         )
-        fallback_response = await self.rag_engine.llm_engine.generate_response([{"role": "user", "content": fallback_prompt}])
-        
-        if "I_DONT_KNOW" in fallback_response or "Mocked Response" in fallback_response:
-            return await self._escalate(
-                db, session_id, user_message, history, "high"
-            )
-        else:
-            # NOTE: Do NOT save fallback answers to ChromaDB.
-            # Doing so would cause future queries to match the generated answer
-            # instead of real documentation (self-pollution).
-            fb_sources = [{
-                "source_id": "llm_fallback",
-                "title": "AI Fallback Knowledge",
-                "chunk_excerpt": fallback_response[:200]
-            }]
-            
-            msg = await self._add_message(
-                db, session_id, "assistant", fallback_response,
-                confidence_score=0.8,
-                sources=fb_sources,
-            )
-            return ChatResponse(
-                session_id=str(session_id),
-                message_id=str(msg.id),
-                response=fallback_response,
-                sources=[SourceInfo(**s) for s in fb_sources],
-                action=Action.resolve,
-                ticket=None,
-            )
+
+        # fallback_prompt = (
+        #     "Answer the following technical support or programming question based on your general knowledge. "
+        #     "If you do not know the answer or are not highly confident, you MUST reply EXACTLY with 'I_DONT_KNOW'.\n\n"
+        #     f"Question: {user_message}"
+        # )
+        # fallback_response = await self.rag_engine.llm_engine.generate_response([{"role": "user", "content": fallback_prompt}])
+        # 
+        # if "I_DONT_KNOW" in fallback_response or "Mocked Response" in fallback_response:
+        #     return await self._escalate(
+        #         db, session_id, user_message, history, "high"
+        #     )
+        # else:
+        #     # NOTE: Do NOT save fallback answers to ChromaDB.
+        #     # Doing so would cause future queries to match the generated answer
+        #     # instead of real documentation (self-pollution).
+        #     fb_sources = [{
+        #         "source_id": "llm_fallback",
+        #         "title": "AI Fallback Knowledge",
+        #         "chunk_excerpt": fallback_response[:200]
+        #     }]
+        #     
+        #     msg = await self._add_message(
+        #         db, session_id, "assistant", fallback_response,
+        #         confidence_score=0.8,
+        #         sources=fb_sources,
+        #     )
+        #     return ChatResponse(
+        #         session_id=str(session_id),
+        #         message_id=str(msg.id),
+        #         response=fallback_response,
+        #         sources=[SourceInfo(**s) for s in fb_sources],
+        #         action=Action.resolve,
+        #         ticket=None,
+        #     )
 
     async def stream_message(
         self,
@@ -331,7 +343,7 @@ class ChatService:
         # 5. Clarification?
         if initial["action"] == "clarification":
             text = "I'd like to help, but I need a bit more information to give you an accurate answer."
-            msg = await self._add_message(db, session_id, "assistant", text, confidence_score=initial["score"])
+            msg = await self._add_message(db, session_id, "assistant", text, confidence_score=initial["score"], action=Action.clarification)
             yield {"type": "chunk", "content": text, "is_final": True}
             yield {
                 "type": "final",
@@ -392,107 +404,27 @@ class ChatService:
         )
         logger.info(f"[DEBUG] Post-retrieval confidence: score={post.get('score')}, action={post.get('action')}, retrieval={post.get('retrieval_score')}, relevance={post.get('relevance_score')}, completeness={post.get('completeness_score')}")
 
-        # 8. Attempt RAG if resolve
-        if post["action"] == "resolve":
-            logger.info(f"[DEBUG] Post-retrieval action=resolve, attempting RAG response generation")
-            full_response, sources = await self.rag_engine.generate_response(user_message, search_results)
-            logger.info(f"[DEBUG] RAG response (first 200 chars): {full_response[:200]}")
-            
-            if "SUFFICIENT" not in hop_response.upper() and len(hop_response) > 3:
-                logger.info(f"Multi-hop active. Fetching missing info for query: {hop_response}")
-                extra_results = await self.rag_engine.search(hop_response, filters=filters)
-                
-                # Merge and deduplicate
-                seen_ids = {d["id"] for d in search_results}
-                for d in extra_results:
-                    if d["id"] not in seen_ids:
-                        search_results.append(d)
-                        seen_ids.add(d["id"])
-                        
-                # Re-sort by similarity and limit to top 8
-                search_results.sort(key=lambda x: x["similarity"], reverse=True)
-                search_results = search_results[:8]
-
-        # We always try to generate a response, even with an empty search list, because the prompt allows general knowledge.
-        post = {"action": "resolve", "score": 0.8}
-        if search_results:
-            post = await self.confidence_service.calculate_post_retrieval_confidence(
-                query=user_message,
-                retrieved_docs=search_results,
-            )
-
-        # 8. Attempt Generation (RAG or General Knowledge)
+        # 8. Attempt Generation
         full_response, sources = await self.rag_engine.generate_response(user_message, search_results)
         
-        if "I_DONT_KNOW" not in full_response:
+        if full_response != "INSUFFICIENT_DOCUMENTATION":
             yield {"type": "chunk", "content": full_response}
-                msg = await self._add_message(
-                    db, session_id, "assistant", full_response,
-                    confidence_score=post["score"],
-                    sources=sources
-                )
-                yield {
-                    "type": "final",
-                    "action": Action.resolve,
-                    "sources": [SourceInfo(**s) for s in sources],
-                    "message_id": str(msg.id)
-                }
-                return
-
-        # 9. Fallback: Either post["action"] != "resolve" OR INSUFFICIENT_DOCUMENTATION
-        logger.info(f"[DEBUG] Fallback path triggered, calling LLM for general knowledge")
-        fallback_prompt = (
-            "Answer the following technical support or programming question based on your general knowledge. "
-            "If you do not know the answer or are not highly confident, you MUST reply EXACTLY with 'I_DONT_KNOW'.\n\n"
-            f"Question: {user_message}"
-        )
-        fallback_response = await self.rag_engine.llm_engine.generate_response([{"role": "user", "content": fallback_prompt}])
-        logger.info(f"[DEBUG] Fallback LLM response (first 200 chars): {fallback_response[:200]}")
-        
-        if "I_DONT_KNOW" in fallback_response or "Mocked Response" in fallback_response:
-            logger.info(f"[DEBUG] Fallback LLM said I_DONT_KNOW -> ESCALATING to ticket")
-            # Base LLM also doesn't know -> Escalate to ticket
-            resp = await self._escalate(db, session_id, user_message, history, "high")
-            yield {"type": "chunk", "content": resp.response, "is_final": True}
-            yield {
-                "type": "final",
-                "action": Action.escalated,
-                "ticket": resp.ticket,
-                "message_id": resp.message_id
-            }
-            return
-        else:
-            logger.info(f"[DEBUG] Fallback LLM returned answer -> NOT escalating, storing as knowledge")
-            # Base model knows! Add to KC
-            import time
-            import uuid
-            new_source_id = f"fallback_{int(time.time())}"
-            await self.rag_engine.add_documents(new_source_id, f"Auto-generated answer for: {user_message}", [fallback_response])
-            
-            # If sources are empty, it means we used general knowledge
-            if not sources and "general knowledge" in full_response.lower():
-                 sources = [{
-                     "source_id": "llm_fallback",
-                     "title": "AI Fallback Knowledge",
-                     "url": "",
-                     "chunk_excerpt": full_response[:200]
-                 }]
-                 logger.info("Serving answer from base LLM general knowledge")
-            
             msg = await self._add_message(
                 db, session_id, "assistant", full_response,
-                confidence_score=post.get("score", 0.5),
-                sources=sources
+                confidence_score=post["score"],
+                sources=sources,
+                action=Action.resolve
             )
             yield {
                 "type": "final",
                 "action": Action.resolve,
-                "sources": [SourceInfo(**s) for s in sources] if sources else [],
+                "sources": [SourceInfo(**s) for s in sources],
                 "message_id": str(msg.id)
             }
             return
 
-        # 9. Fallback: Base LLM also doesn't know -> Escalate to ticket
+        # 9. Fallback: INSUFFICIENT_DOCUMENTATION (DISABLED - Escalating instead)
+        logger.info(f"[DEBUG] Fallback path triggered — Escalating to Jira")
         resp = await self._escalate(db, session_id, user_message, history, "high")
         yield {"type": "chunk", "content": resp.response, "is_final": True}
         yield {
@@ -503,6 +435,53 @@ class ChatService:
         }
         return
 
+        # fallback_prompt = (
+        #     "Answer the following technical support or programming question based on your general knowledge. "
+        #     "If you do not know the answer or are not highly confident, you MUST reply EXACTLY with 'I_DONT_KNOW'.\n\n"
+        #     f"Question: {user_message}"
+        # )
+        # fallback_response = await self.rag_engine.llm_engine.generate_response([{"role": "user", "content": fallback_prompt}])
+        # logger.info(f"[DEBUG] Fallback LLM response (first 200 chars): {fallback_response[:200]}")
+        # 
+        # if "I_DONT_KNOW" in fallback_response or "Mocked Response" in fallback_response:
+        #     logger.info(f"[DEBUG] Fallback LLM said I_DONT_KNOW -> ESCALATING to ticket")
+        #     # Base LLM also doesn't know -> Escalate to ticket
+        #     resp = await self._escalate(db, session_id, user_message, history, "high")
+        #     yield {"type": "chunk", "content": resp.response, "is_final": True}
+        #     yield {
+        #         "type": "final",
+        #         "action": Action.escalated,
+        #         "ticket": resp.ticket,
+        #         "message_id": resp.message_id
+        #     }
+        #     return
+        # else:
+        #     logger.info(f"[DEBUG] Fallback LLM returned answer -> NOT escalating")
+        #     
+        #     # NOTE: Do NOT save fallback answers to ChromaDB (self-pollution).
+        #     
+        #     # Use fallback response as the main answer
+        #     yield {"type": "chunk", "content": fallback_response}
+        #     
+        #     fb_sources = [{
+        #         "source_id": "llm_fallback",
+        #         "title": "AI Fallback Knowledge",
+        #         "url": "",
+        #         "chunk_excerpt": fallback_response[:200]
+        #     }]
+        #     
+        #     msg = await self._add_message(
+        #         db, session_id, "assistant", fallback_response,
+        #         confidence_score=post.get("score", 0.5),
+        #         sources=fb_sources
+        #     )
+        #     yield {
+        #         "type": "final",
+        #         "action": Action.resolve,
+        #         "sources": [SourceInfo(**s) for s in fb_sources],
+        #         "message_id": str(msg.id)
+        #     }
+        #     return
 
     # ------------------------------------------------------------------
     # Escalation helper
@@ -530,8 +509,12 @@ class ChatService:
             "I've created a support ticket so our team can look into this."
         )
         msg = await self._add_message(
-            db, session_id, "assistant", text, confidence_score=0.0
+            db, session_id, "assistant", text, confidence_score=0.0, action=Action.escalated
         )
+
+        settings = get_settings()
+        jira_base_url = (settings.JIRA_URL or "").rstrip("/")
+        jira_url = f"{jira_base_url}/browse/{ticket.jira_issue_key}" if ticket.jira_issue_key and jira_base_url else None
 
         return ChatResponse(
             session_id=str(session_id),
@@ -542,6 +525,7 @@ class ChatService:
             ticket=TicketInfo(
                 id=str(ticket.id),
                 jira_issue_key=ticket.jira_issue_key,
+                jira_url=jira_url,
                 summary=ticket.summary,
                 severity=(
                     ticket.severity.value

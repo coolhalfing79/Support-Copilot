@@ -523,6 +523,7 @@ class TestChatService:
             db=mock_db,
             session_id=str(uuid.uuid4()),
             user_message="How do I fix the payment timeout?",
+            user_id=str(uuid.uuid4()),
         )
 
         assert response.action == "resolve"
@@ -542,6 +543,7 @@ class TestChatService:
             db=mock_db,
             session_id=str(uuid.uuid4()),
             user_message="it's broken",
+            user_id=str(uuid.uuid4()),
         )
 
         assert response.action == "clarification"
@@ -563,6 +565,7 @@ class TestChatService:
             db=mock_db,
             session_id=str(uuid.uuid4()),
             user_message="Very obscure edge case",
+            user_id=str(uuid.uuid4()),
         )
 
         assert response.action == "escalated"
@@ -583,6 +586,7 @@ class TestChatService:
             db=mock_db,
             session_id=str(uuid.uuid4()),
             user_message="Something completely new",
+            user_id=str(uuid.uuid4()),
         )
 
         assert response.action == "escalated"

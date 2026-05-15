@@ -121,7 +121,8 @@ class KnowledgeService:
                     pages = await self.scraper.crawl_website(source.url, max_pages=getattr(source, "max_pages", 200))
                 else:
                     content = await self.scraper.fetch_content(source.url)
-                    pages = [content] if content and len(content.strip()) >= 50 else []
+                    # Must be a list of dicts for clean_and_filter_pages
+                    pages = [{"url": source.url, "content": content}] if content and len(content.strip()) >= 50 else []
 
                 if not pages:
                     raise ValueError("Fetched content is too short, empty, or crawler returned no valid pages")

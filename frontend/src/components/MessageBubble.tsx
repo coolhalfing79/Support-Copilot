@@ -1,11 +1,11 @@
 import { motion } from 'framer-motion'
-import { Bot, User, CheckCircle2, AlertCircle, HelpCircle, BrainCircuit } from 'lucide-react'
+import { Bot, User, CheckCircle2, AlertCircle, HelpCircle, BrainCircuit, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Message } from '../store/userStore'
 import { useUserStore } from '../store/userStore'
 import { ClarificationChips } from './ClarificationChips'
 import { useWebSocket } from '../hooks/useWebSocket'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 
 import ReactMarkdown from 'react-markdown'
@@ -19,6 +19,7 @@ interface MessageBubbleProps {
 export const MessageBubble = ({ message }: MessageBubbleProps) => {
   const isAI = message.role === 'assistant'
   const { sessionId } = useParams<{ sessionId: string }>()
+  const navigate = useNavigate()
   const { sendMessage } = useWebSocket(sessionId || null)
   const [activePanelIdx, setActivePanelIdx] = useState<number | null>(null)
   const { messages } = useUserStore()
@@ -132,21 +133,40 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
           {/* State 3: Escalated ticket — card with ticket ID, no chips */}
           {isEscalated && (
             <div className="mt-3 pt-3 border-t border-[#e0e0e0]">
-              <div className="flex items-center justify-between px-3 py-2.5 rounded-md bg-[#fff1f1] border border-[#da1e28]/20">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-3.5 h-3.5 text-[#da1e28] flex-shrink-0" />
-                  <div>
-                    <span className="text-[11px] font-semibold text-[#161616] block">
-                      Ticket created
+              <div className="flex flex-col gap-2 px-3 py-2.5 rounded-md bg-[#fff1f1] border border-[#da1e28]/20 group cursor-pointer hover:bg-[#fff1f1]/80 transition-colors"
+                onClick={() => {
+                  if (message.ticket?.jira_url) {
+                    window.open(message.ticket.jira_url, '_blank', 'noopener,noreferrer')
+                  } else {
+                    navigate('/tickets')
+                  }
+                }}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-[#da1e28] flex-shrink-0" />
+                    <div>
+                      <span className="text-[11px] font-semibold text-[#161616] block">
+                        Ticket created
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-[#da1e28] bg-[#da1e28]/10 px-2 py-0.5 rounded-full">
+                      {message.ticket?.status || 'In Review'}
                     </span>
-                    <span className="text-[10px] text-[#6f6f6f]">
-                      TKT-{message.id?.slice(0, 8).toUpperCase()}
-                    </span>
+                    <div className="text-[#da1e28] hover:text-[#da1e28]/80 transition-colors">
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-[#da1e28] bg-[#da1e28]/10 px-2 py-0.5 rounded-full">
-                    In Review
+                
+                <div className="pl-[22px]">
+                  <p className="text-[10px] text-[#525252] mb-1.5">
+                    Your request has been escalated. You can track the progress using the ticket ID below.
+                  </p>
+                  <span className="text-[10px] font-mono font-medium text-[#161616] bg-white px-2 py-0.5 rounded border border-[#e0e0e0]">
+                    {message.ticket?.jira_issue_key || `TKT-${message.id?.slice(0, 8).toUpperCase()}`}
                   </span>
                 </div>
               </div>

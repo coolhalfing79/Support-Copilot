@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import axios from 'axios'
+import axios, { AxiosError } from 'axios'
 import { API_BASE_URL } from '../config/api'
 
 export interface KnowledgeSource {
@@ -110,8 +110,9 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     try {
       const response = await api.get('/knowledge/sources')
       set({ knowledgeSources: response.data.sources || response.data, isLoading: false })
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to load sources', isLoading: false })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to load sources', isLoading: false })
     }
   },
   
@@ -123,8 +124,9 @@ export const useAdminStore = create<AdminState>((set, get) => ({
         knowledgeSources: [response.data, ...state.knowledgeSources],
         isAddingSource: false,
       }))
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to add source', isAddingSource: false })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to add source', isAddingSource: false })
     }
   },
   
@@ -134,8 +136,9 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       set((state) => ({
         knowledgeSources: state.knowledgeSources.filter((s) => s.id !== id),
       }))
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to delete source' })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to delete source' })
     }
   },
   
@@ -149,8 +152,9 @@ export const useAdminStore = create<AdminState>((set, get) => ({
         ),
         isRefreshing: null,
       }))
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to re-index', isRefreshing: null })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to re-index', isRefreshing: null })
     }
   },
   
@@ -159,14 +163,15 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       const { filterStatus, filterSeverity } = get()
-      const params: any = {}
+      const params: Record<string, string> = {}
       if (filterStatus) params.status = filterStatus
       if (filterSeverity) params.severity = filterSeverity
       
       const response = await api.get('/tickets', { params })
       set({ tickets: response.data.tickets || response.data, isLoading: false })
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to load tickets', isLoading: false })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to load tickets', isLoading: false })
     }
   },
   
@@ -193,8 +198,9 @@ export const useAdminStore = create<AdminState>((set, get) => ({
         selectedTicket: state.selectedTicket?.id === id ? updatedTicket : state.selectedTicket,
         isLoading: false,
       }))
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to sync ticket', isLoading: false })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to sync ticket', isLoading: false })
     }
   },
 
@@ -209,8 +215,9 @@ export const useAdminStore = create<AdminState>((set, get) => ({
         tickets: state.tickets.map((t) => (t.id === id ? updatedTicket : t)),
         selectedTicket: state.selectedTicket?.id === id ? updatedTicket : state.selectedTicket,
       }))
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to add comment' })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to add comment' })
     }
   },
 
@@ -218,8 +225,9 @@ export const useAdminStore = create<AdminState>((set, get) => ({
     try {
       const response = await api.get('/tickets/jira/issue-types')
       return response.data.issue_types || response.data
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to load issue types' })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to load issue types' })
       return []
     }
   },
@@ -232,8 +240,9 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       // Map response to MetricOverview
       const data = response.data.metrics || response.data
       set({ metrics: data, isLoading: false })
-    } catch (err: any) {
-      set({ error: err.response?.data?.message || 'Failed to load metrics', isLoading: false })
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ message?: string }>
+      set({ error: axiosError.response?.data?.message || 'Failed to load metrics', isLoading: false })
     }
   },
   

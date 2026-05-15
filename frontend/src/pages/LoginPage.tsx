@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, Mail, Lock, ArrowRight, ShieldCheck, User as UserIcon } from 'lucide-react'
+import { AxiosError } from 'axios'
 import { useAuthStore } from '../store/authStore'
 
 export const LoginPage = () => {
@@ -30,8 +31,9 @@ export const LoginPage = () => {
         setIsLogin(true) // Switch to login after successful registration
         setSuccess('Registration successful! Please login with your credentials.')
       }
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'An error occurred. Please try again.')
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError<{ detail?: string }>
+      setError(axiosError.response?.data?.detail || 'An error occurred. Please try again.')
     } finally {
       setIsLoading(false)
     }

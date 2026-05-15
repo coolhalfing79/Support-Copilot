@@ -15,6 +15,11 @@ class _FakeLLMEngine:
         self.responses = []
         self.structured_responses = []
 
+    async def generate_response(self, messages, system_prompt=None):
+        if self.responses:
+            return self.responses.pop(0)
+        return "Mocked Response"
+
     async def generate_response_stream(self, messages, system_prompt=None):
         yield "Chunk 1"
         yield " Chunk 2"
@@ -28,10 +33,11 @@ class _FakeCollection:
     def __init__(self):
         self.upsert_calls = []
         self.query_calls = []
+        self.query_count = 0
         self.results = {
             "ids": [["doc_1"]],
             "documents": [["Relevant context content"]],
-            "metadatas": [[{"source_id": "src1", "source_title": "Title"}]],
+            "metadatas": [[{"source_id": "src1", "source_title": "Title", "source_url": "http://src1"}]],
             "distances": [[0.1]],
         }
 
@@ -40,12 +46,29 @@ class _FakeCollection:
 
     def query(self, **kwargs):
         self.query_calls.append(kwargs)
-        return self.results
+        self.query_count += 1
+        
+        # If the test set results to be empty, respect that
+        if self.results.get("ids") == [[]]:
+            return self.results
+            
+        # Return a new ID each time to avoid 'no new docs' break in agentic loop
+        res = self.results.copy()
+        res["ids"] = [[f"doc_{self.query_count}"]]
+        res["documents"] = [["Relevant context content"]]
+        res["metadatas"] = [[{
+            "source_id": f"src{self.query_count}", 
+            "source_title": f"Title {self.query_count}",
+            "source_url": f"http://src{self.query_count}"
+        }]]
+        res["distances"] = [[0.1]]
+        return res
 
 def _make_rag_test_instance():
     # Bypass __init__ to avoid real connections
     rag = object.__new__(RAGEngine)
     rag.top_k = 3
+    rag.max_hops = 3
     rag.batch_size = 100
     rag.embedding_engine = _FakeEmbeddingEngine()
     rag.llm_engine = _FakeLLMEngine()
@@ -56,14 +79,15 @@ def _make_rag_test_instance():
 async def test_add_documents_batching():
     rag = _make_rag_test_instance()
     rag.batch_size = 2 # Small batch size to test batching logic
-    chunks = ["chunk1", "chunk2", "chunk3", "chunk4", "chunk5"]
+    # Use longer UNIQUE chunks to pass the 50-char filter and avoid deduplication
+    chunks = [f"Unique chunk {i}: This is a long enough chunk to pass the minimum length filter of fifty characters." for i in range(5)]
     
     added = await rag.add_documents("sid", "title", chunks, source_url="http://url")
     
     assert added == 5
     assert len(rag.collection.upsert_calls) == 3 # 2 + 2 + 1
-    assert rag.collection.upsert_calls[0]["ids"] == ["sid_chunk_0", "sid_chunk_1"]
-    assert rag.collection.upsert_calls[2]["ids"] == ["sid_chunk_4"]
+    # Check that IDs start with the prefix
+    assert rag.collection.upsert_calls[0]["ids"][0].startswith("sid_chunk_")
     assert rag.collection.upsert_calls[0]["metadatas"][0]["source_url"] == "http://url"
 
 @pytest.mark.asyncio
@@ -99,12 +123,20 @@ async def test_agentic_rag_multi_hop():
     # Mock search to return something different for the second search if needed
     # (Actually it will just use whatever the collection mock returns)
     
-    initial_docs = [{"id": "d1", "content": "c1", "metadata": {"source_id": "initial_src", "source_title": "Initial Doc"}}]
+    initial_docs = [{
+        "id": "d1", 
+        "content": "c1", 
+        "metadata": {
+            "source_id": "initial_src", 
+            "source_title": "Initial Doc",
+            "source_url": "http://initial"
+        },
+        "similarity": 0.5
+    }]
     content, sources = await rag.generate_response("initial query", initial_docs)
     
     assert content == "The final answer is Y"
     # Sources should include both the initial context and the new search results
-    # doc_1 comes from the _FakeCollection.query which is called during 'search' action
     source_ids = [s["source_id"] for s in sources]
     assert "initial_src" in source_ids # from d1
     assert "src1" in source_ids # from doc_1
@@ -150,6 +182,19 @@ async def test_agentic_rag_insufficient():
     
     content, sources = await rag.generate_response("query", [])
     assert content == "INSUFFICIENT_DOCUMENTATION"
+
+@pytest.mark.asyncio
+async def test_add_documents_duplicate_handling():
+    rag = _make_rag_test_instance()
+    # Identical chunks should result in identical IDs and be deduplicated
+    chunk_text = "This is a long enough chunk to pass the minimum length filter of fifty characters."
+    chunks = [chunk_text, chunk_text, "Another unique chunk that also passes the fifty character length filter."]
+    
+    added = await rag.add_documents("sid", "title", chunks)
+    
+    assert added == 2 # 1 unique + 1 unique
+    assert len(rag.collection.upsert_calls) == 1
+    assert len(rag.collection.upsert_calls[0]["ids"]) == 2
 
 @pytest.mark.asyncio
 async def test_process_query_empty():

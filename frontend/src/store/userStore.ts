@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { AxiosError } from 'axios'
 import { api } from '../config/api'
 
 export interface SourceInfo {
@@ -6,6 +7,15 @@ export interface SourceInfo {
   title: string
   chunk_excerpt: string
   url?: string
+}
+
+export interface TicketInfo {
+  id: string
+  jira_issue_key?: string
+  jira_url?: string
+  summary: string
+  severity: string
+  status: string
 }
 
 export interface Message {
@@ -16,6 +26,7 @@ export interface Message {
   action?: 'resolve' | 'clarification' | 'escalated'
   suggestions?: string[]
   sources?: SourceInfo[]
+  ticket?: TicketInfo
 }
 
 export interface Session {
@@ -49,8 +60,6 @@ interface UserState {
   fetchAvailableSources: () => Promise<void>
   toggleSourceSelection: (sourceId: string) => void
 }
-
-
 
 export const useUserStore = create<UserState>((set) => ({
   sessionId: null,
@@ -97,7 +106,7 @@ export const useUserStore = create<UserState>((set) => ({
       const response = await api.get('/chat/sessions')
       const sessions = response.data.sessions || response.data
       set({ sessions })
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to load sessions', err)
     }
   },
@@ -106,7 +115,10 @@ export const useUserStore = create<UserState>((set) => ({
     set({ isHistoryLoading: true })
     try {
       const response = await api.get(`/chat/sessions/${id}`)
-      const serverMessages = response.data.messages || []
+      const serverMessages = (response.data.messages || []).map((msg: any) => ({
+        ...msg,
+        timestamp: msg.created_at || msg.timestamp
+      }))
       
       set((state) => {
         // Only overwrite if we don't have new local messages in flight
@@ -116,8 +128,9 @@ export const useUserStore = create<UserState>((set) => ({
         }
         return { messages: serverMessages, isHistoryLoading: false }
       })
-    } catch (err: any) {
-      if (err.response?.status === 404) {
+    } catch (err: unknown) {
+      const axiosError = err as AxiosError
+      if (axiosError.response?.status === 404) {
         // New session, no history yet - this is fine
         set({ messages: [], isHistoryLoading: false })
       } else {
@@ -132,7 +145,7 @@ export const useUserStore = create<UserState>((set) => ({
       const response = await api.get('/knowledge/sources')
       const sources = response.data.sources || response.data
       set({ availableSources: sources })
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to load knowledge sources', err)
     }
   },

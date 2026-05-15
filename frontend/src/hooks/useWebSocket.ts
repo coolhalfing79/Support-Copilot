@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { useUserStore } from '../store/userStore'
+import { useUserStore, type Message, type SourceInfo } from '../store/userStore'
 import { useAuthStore } from '../store/authStore'
 import { WS_BASE_URL } from '../config/api'
 
@@ -9,10 +9,20 @@ let globalSessionId: string | null = null
 let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 5
 
+interface WSMessage {
+  type: 'start' | 'chunk' | 'final' | 'error'
+  content?: string
+  message?: string
+  action?: 'resolve' | 'clarification' | 'escalated'
+  suggestions?: string[]
+  sources?: SourceInfo[]
+}
+
 export const useWebSocket = (sessionId: string | null) => {
   const { addMessage, updateLastMessage, setStreaming, setConnected } = useUserStore()
   const reconnectTimeoutRef = useRef<number | null>(null)
   const isMounted = useRef(true)
+  const connectRef = useRef<() => void>(() => {})
   
   // Use a ref to keep track of the current store functions (avoids stale closures)
   const storeRef = useRef({ addMessage, updateLastMessage, setStreaming, setConnected })
@@ -65,7 +75,7 @@ export const useWebSocket = (sessionId: string | null) => {
 
       ws.onmessage = (event) => {
         if (!isMounted.current) return
-        const data = JSON.parse(event.data)
+        const data = JSON.parse(event.data) as WSMessage
         console.log('📥 [WebSocket] Message:', data.type)
         
         switch (data.type) {
@@ -80,7 +90,9 @@ export const useWebSocket = (sessionId: string | null) => {
             break
           
           case 'chunk':
-            storeRef.current.updateLastMessage(data.content)
+            if (data.content) {
+              storeRef.current.updateLastMessage(data.content)
+            }
             break
           
           case 'final':
@@ -123,7 +135,7 @@ export const useWebSocket = (sessionId: string | null) => {
           console.log(`🔄 [WebSocket] Reconnecting in ${timeout}ms...`)
           reconnectTimeoutRef.current = window.setTimeout(() => {
             reconnectAttempts++
-            connect()
+            connectRef.current()
           }, timeout)
         }
       }
@@ -139,6 +151,10 @@ export const useWebSocket = (sessionId: string | null) => {
       console.error('🚀 [WebSocket] Connection attempt failed:', err)
     }
   }, [sessionId])
+
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
 
   useEffect(() => {
     // Small delay to let StrictMode settle or previous cleanup finish
@@ -162,14 +178,14 @@ export const useWebSocket = (sessionId: string | null) => {
     }
 
     // Always add the user message to UI immediately for responsiveness
-    const userMessage = {
+    const userMessage: Message = {
       id: `local-${Date.now()}`,
       role: 'user',
       content: msg,
       timestamp: new Date().toISOString(),
     }
     console.log('📝 [WebSocket] Adding user message to UI:', msg)
-    storeRef.current.addMessage(userMessage as any)
+    storeRef.current.addMessage(userMessage)
 
     // If still connecting, wait a moment then try to send
     if (globalSocket?.readyState === WebSocket.CONNECTING) {

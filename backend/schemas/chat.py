@@ -39,6 +39,7 @@ class TicketInfo(BaseModel):
 
     id: str
     jira_issue_key: str | None = None
+    jira_url: str | None = None
     summary: str
     severity: str
     status: str
@@ -99,6 +100,8 @@ class MessageResponse(BaseModel):
     content: str
     confidence_score: float | None = None
     sources: Any | None = None
+    action: Action | None = None
+    ticket: TicketInfo | None = None
     created_at: datetime
 
     @field_validator("role", mode="before")

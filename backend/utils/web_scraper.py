@@ -86,29 +86,46 @@ class WebScraper:
         async def fetch_one(client: httpx.AsyncClient, url: str) -> tuple[str, str, list[str]]:
             """Fetch a single page and extract its text + discovered links."""
             async with semaphore:
+                html = ""
                 try:
-                    # Fetch via Jina AI Reader (handles JS/SPAs and returns clean Markdown)
+                    # 1. Try to fetch raw HTML for link extraction (better for framesets/legacy docs)
+                    resp = await client.get(url, headers=self.headers, timeout=10.0)
+                    if resp.status_code == 200:
+                        html = resp.text
+                except Exception as e:
+                    logger.debug("Raw fetch failed for %s: %s", url, e)
+
+                text = ""
+                try:
+                    # 2. Fetch via Jina AI Reader (handles JS/SPAs and returns clean Markdown)
                     jina_resp = await client.get(f"https://r.jina.ai/{url}", headers=self.headers)
                     jina_resp.raise_for_status()
                     text = jina_resp.text
                 except Exception as exc:
-                    logger.warning("Failed to fetch %s: %s", url, exc)
-                    return "", []
+                    logger.warning("Failed to fetch %s via Jina: %s", url, exc)
+                    # Fallback to raw HTML parsing if Jina fails
+                    if html:
+                        logger.info("Falling back to local HTML parsing for %s", url)
+                        text = self._parse_html(html)
+                    
+                if not text:
+                    return "", "", []
 
                 new_urls: list[str] = []
                 
                 # --- extract links from raw HTML (for JavaDocs/framesets) ---
-                soup = BeautifulSoup(html, "html.parser")
-                for tag in soup.find_all(["a", "frame", "iframe"]):
-                    href = tag.get("href") or tag.get("src")
-                    if href:
-                        abs_url = urljoin(url, href)
-                        abs_url, _ = urldefrag(abs_url)
-                        # Normalize URL to prevent infinite loops (e.g. from session IDs)
-                        if '?' in abs_url and 'path=/docs' not in abs_url:
-                            abs_url = abs_url.split('?')[0]
-                        if abs_url.startswith(base_prefix):
-                            new_urls.append(abs_url)
+                if html:
+                    soup = BeautifulSoup(html, "html.parser")
+                    for tag in soup.find_all(["a", "frame", "iframe"]):
+                        href = tag.get("href") or tag.get("src")
+                        if href:
+                            abs_url = urljoin(url, href)
+                            abs_url, _ = urldefrag(abs_url)
+                            # Normalize URL to prevent infinite loops (e.g. from session IDs)
+                            if '?' in abs_url and 'path=/docs' not in abs_url:
+                                abs_url = abs_url.split('?')[0]
+                            if abs_url.startswith(base_prefix):
+                                new_urls.append(abs_url)
 
                 # --- extract links from Jina Markdown (for React/JS SPAs) ---
                 for match in re.finditer(r'\]\((https?://[^\s\)]+)\)', text):

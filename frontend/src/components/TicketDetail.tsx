@@ -1,6 +1,7 @@
-import { X, ExternalLink, Calendar, Tag, ShieldAlert } from 'lucide-react'
+import { useState } from 'react'
+import { X, ExternalLink, Calendar, Tag, ShieldAlert, RefreshCw, User, Send } from 'lucide-react'
 import { motion } from 'framer-motion'
-import type { Ticket } from '../store/adminStore'
+import { type Ticket, useAdminStore } from '../store/adminStore'
 
 interface TicketDetailProps {
   ticket: Ticket

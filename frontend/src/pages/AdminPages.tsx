@@ -1,4 +1,5 @@
-import { useAdminStore } from '../store/adminStore'
+import { useAdminStore, type IssueType } from '../store/adminStore'
+import { type Session } from '../store/userStore'
 import { StatCard } from '../components/StatCard'
 import {
   MessageSquare,
@@ -30,8 +31,8 @@ import { API_BASE_URL } from '../config/api'
 // --- Sub-component: ManualEscalateModal ---
 const ManualEscalateModal = ({ onClose }: { onClose: () => void }) => {
   const { loadIssueTypes, loadTickets } = useAdminStore()
-  const [sessions, setSessions] = useState<any[]>([])
-  const [issueTypes, setIssueTypes] = useState<any[]>([])
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [issueTypes, setIssueTypes] = useState<IssueType[]>([])
   const [selectedSession, setSelectedSession] = useState('')
   const [selectedIssueType, setSelectedIssueType] = useState('Bug')
   const [isEscalating, setIsEscalating] = useState(false)
@@ -257,7 +258,7 @@ export const AdminDashboard = () => {
               <div
                 key={i}
                 className="flex-1 bg-[#0f62fe]/50 rounded-t-sm hover:bg-[#0f62fe] transition-all cursor-pointer"
-                style={{ height: `${Math.random() * 100}%` }}
+                style={{ height: `${((i * 13) % 40) + 40}%` }}
               />
             ))}
           </div>

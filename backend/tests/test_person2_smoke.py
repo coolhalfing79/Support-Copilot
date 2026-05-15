@@ -49,10 +49,14 @@ def _make_rag_for_test() -> tuple[RAGEngine, _FakeCollection]:
 @pytest.mark.asyncio
 async def test_rag_add_documents_uses_upsert() -> None:
     rag, collection = _make_rag_for_test()
-    added = await rag.add_documents("sourceA", "Title A", ["a", "b"])
+    # Chunks must be >= 50 characters to be indexed by rag_pipeline.py
+    chunk1 = "This is a long documentation chunk about system architecture that exceeds fifty characters."
+    chunk2 = "Another piece of technical writing that provides enough detail to pass the length check."
+    added = await rag.add_documents("sourceA", "Title A", [chunk1, chunk2])
     assert added == 2
     assert len(collection.upsert_calls) == 1
-    assert collection.upsert_calls[0]["ids"] == ["sourceA_chunk_0", "sourceA_chunk_1"]
+    # Check that IDs start with the prefix (new logic uses hashlib)
+    assert collection.upsert_calls[0]["ids"][0].startswith("sourceA_chunk_")
 
 
 @pytest.mark.asyncio
@@ -71,10 +75,14 @@ async def test_rag_search_passes_where_when_filters_present() -> None:
 
 
 def test_text_splitter_and_completeness_heuristic() -> None:
-    splitter = TextSplitter(chunk_size=40, chunk_overlap=5)
-    chunks = splitter.split_text(
-        "Error 500 happens on login. Step 1: restart app. Then apply fix and update config."
+    splitter = TextSplitter(chunk_size=200, chunk_overlap=20)
+    # Text must be long enough to produce chunks >= 60 chars to pass _is_quality_chunk
+    text = (
+        "Error 500 happens on login. Step 1: restart app. "
+        "Then apply fix and update config. Ensure all services are running properly. "
+        "Verification steps: check logs for success message. Restart the gateway if needed."
     )
+    chunks = splitter.split_text(text)
     assert len(chunks) > 0
     score = compute_completeness_score(chunks)
     assert 0.0 <= score <= 1.0
