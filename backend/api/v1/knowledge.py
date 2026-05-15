@@ -5,8 +5,10 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from sqlalchemy import select
 
 from api.dependencies import DbSession
+from models.knowledge_chunk import KnowledgeChunk
 from schemas.knowledge import (
     KnowledgeSourceCreate,
     KnowledgeSourceCreateAccepted,
@@ -118,17 +120,18 @@ async def get_knowledge_graph(db: DbSession) -> dict:
     for s in sources:
         source_id = str(s.id)
         
-        # Fetch chunk content from ChromaDB
+        # Fetch chunks from PostgreSQL
         chunks_data = []
         try:
-            result = knowledge_service.rag_engine.collection.get(where={"source_id": source_id})
-            if result and result.get("documents"):
-                docs = result["documents"]
-                for i, doc in enumerate(docs):
-                    chunks_data.append({
-                        "id": f"chunk-{i}",
-                        "excerpt": doc[:150] + "..." if len(doc) > 150 else doc
-                    })
+            result = await db.execute(
+                select(KnowledgeChunk).where(KnowledgeChunk.source_id == s.id).limit(50)
+            )
+            chunks = result.scalars().all()
+            for chunk in chunks:
+                chunks_data.append({
+                    "id": str(chunk.id),
+                    "excerpt": chunk.content[:150] + "..." if len(chunk.content) > 150 else chunk.content
+                })
         except Exception:
             pass
 

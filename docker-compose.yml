@@ -21,17 +21,6 @@ services:
       timeout: 5s
       retries: 5
 
-  chroma:
-    image: docker.io/chromadb/chroma:latest
-    volumes:
-      - chroma_data:/chroma/chroma
-    # ChromaDB healthcheck
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/localhost/8000'"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ./backend
@@ -41,15 +30,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      chroma:
-        condition: service_healthy
     env_file:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
-      - CHROMA_HOST=chroma
-      - CHROMA_PORT=8000
       - CORS_ORIGINS=http://localhost:8080,http://localhost:5173,http://localhost:8000
     ports:
       - "8000:8000"
@@ -71,4 +56,3 @@ services:
 
 volumes:
   postgres_data:
-  chroma_data:

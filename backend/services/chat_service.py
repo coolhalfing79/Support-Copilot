@@ -228,7 +228,7 @@ class ChatService:
         filters = None
         if knowledge_source_ids:
             filters = {"source_id": {"$in": knowledge_source_ids}}
-        search_results = await self.rag_engine.search(user_message, filters=filters)
+        search_results = await self.rag_engine.search(db, user_message, filters=filters)
 
         if not search_results:
             # No docs at all → escalate immediately.
@@ -245,7 +245,7 @@ class ChatService:
         # ── 6. HIGH → resolve ──────────────────────────────────────────
         if post["action"] == "resolve":
             response_text, sources = await self.rag_engine.generate_response(
-                user_message, search_results
+                db, user_message, search_results
             )
             
             if "I_DONT_KNOW" not in response_text:
@@ -367,7 +367,7 @@ class ChatService:
         filters = None
         if knowledge_source_ids:
             filters = {"source_id": {"$in": knowledge_source_ids}}
-        search_results = await self.rag_engine.search(search_query, filters=filters)
+        search_results = await self.rag_engine.search(db, search_query, filters=filters)
         
         # --- Multi-hop Architecture ---
         # If we have some results, check if they are sufficient to answer the query.
@@ -383,7 +383,7 @@ class ChatService:
             hop_response = await self.rag_engine.llm_engine.generate_response([{"role": "user", "content": check_prompt}])
             hop_response = hop_response.strip(' \n\'"')
         logger.debug(f"RAG search for query: '{user_message[:100]}' ")
-        search_results = await self.rag_engine.search(user_message, filters=filters)
+        search_results = await self.rag_engine.search(db, user_message, filters=filters)
         logger.info(f"[DEBUG] RAG returned {len(search_results) if search_results else 0} results")
         if not search_results:
             logger.info(f"[DEBUG] No RAG results -> ESCALATING to ticket")
@@ -405,7 +405,7 @@ class ChatService:
         logger.info(f"[DEBUG] Post-retrieval confidence: score={post.get('score')}, action={post.get('action')}, retrieval={post.get('retrieval_score')}, relevance={post.get('relevance_score')}, completeness={post.get('completeness_score')}")
 
         # 8. Attempt Generation
-        full_response, sources = await self.rag_engine.generate_response(user_message, search_results)
+        full_response, sources = await self.rag_engine.generate_response(db, user_message, search_results)
         
         if full_response != "INSUFFICIENT_DOCUMENTATION":
             yield {"type": "chunk", "content": full_response}

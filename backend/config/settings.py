@@ -32,10 +32,7 @@ class Settings(BaseSettings):
     JIRA_DEFAULT_ISSUE_TYPE: str = "Bug"
     JIRA_DEFAULT_ASSIGNEE: str | None = None
 
-    CHROMA_HOST: str = "localhost"
-    CHROMA_PORT: int = 8001
-    CHROMA_COLLECTION: str = "knowledge_chunks"
-    CHROMA_BATCH_SIZE: int = 5000
+    VECTOR_BATCH_SIZE: int = 5000
 
     # Keep as plain string to avoid pydantic-settings trying JSON decode before custom validators.
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000,http://localhost:5173"

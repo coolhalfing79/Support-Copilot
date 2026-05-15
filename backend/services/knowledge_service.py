@@ -10,11 +10,12 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai.rag_pipeline import RAGEngine
 from config.database import async_session_factory
+from models.knowledge_chunk import KnowledgeChunk
 from models.knowledge_source import KnowledgeSource
 from utils.content_cleaner import clean_and_filter_pages
 from utils.text_splitter import TextSplitter
@@ -75,18 +76,13 @@ class KnowledgeService:
         return await db.get(KnowledgeSource, source_id)
 
     async def delete_source(self, db: AsyncSession, source_id: str) -> bool:
-        """Delete a knowledge source and its chunks from DB + ChromaDB."""
+        """Delete a knowledge source and its chunks from DB.
+        
+        Relational CASCADE handles chunks in pgvector.
+        """
         source = await db.get(KnowledgeSource, source_id)
         if not source:
             return False
-
-        # Clean up ChromaDB entries for this source.
-        try:
-            self.rag_engine.collection.delete(
-                where={"source_id": str(source_id)},
-            )
-        except Exception as exc:
-            logger.warning("ChromaDB cleanup failed for source %s: %s", source_id, exc)
 
         await db.delete(source)
         return True
@@ -141,8 +137,9 @@ class KnowledgeService:
                 
                 logger.info("Split into %d chunks across %d cleaned pages", len(chunks_with_metadata), len(pages))
 
-                # 3. Add to ChromaDB (embeddings generated internally).
+                # 3. Add to pgvector (embeddings generated internally).
                 chunk_count = await self.rag_engine.add_documents(
+                    db=db,
                     source_id=str(source_id),
                     source_title=source.title or source.url,
                     chunks=chunks_with_metadata,
@@ -176,12 +173,14 @@ class KnowledgeService:
                 return False
 
     async def reindex_source(self, source_id: str) -> bool:
-        """Delete existing ChromaDB data for this source and re-ingest."""
-        try:
-            self.rag_engine.collection.delete(
-                where={"source_id": str(source_id)},
-            )
-        except Exception as exc:
-            logger.warning("ChromaDB cleanup before reindex failed: %s", exc)
+        """Delete existing chunks for this source and re-ingest."""
+        async with async_session_factory() as db:
+            try:
+                await db.execute(
+                    delete(KnowledgeChunk).where(KnowledgeChunk.source_id == source_id)
+                )
+                await db.commit()
+            except Exception as exc:
+                logger.warning("Postgres chunk cleanup before reindex failed: %s", exc)
 
         return await self.ingest_source(source_id)

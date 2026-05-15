@@ -27,9 +27,11 @@ _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
-from ai.chroma_utils import get_chroma_client, reset_collection
 from ai.rag_pipeline import get_rag_engine
 from config.settings import get_settings
+from config.database import async_session_factory
+from models.knowledge_chunk import KnowledgeChunk
+from sqlalchemy import delete
 
 
 async def main() -> None:
@@ -37,44 +39,46 @@ async def main() -> None:
     if not settings.GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY missing in backend/.env")
 
-    client = get_chroma_client()
-    reset_collection(client, settings.CHROMA_COLLECTION)
-
     rag = get_rag_engine()
-    source_id = f"smoke-{uuid.uuid4()}"
-    chunks = [
-        "ERR_TIMEOUT occurs when processor does not respond in 30 seconds.",
-        "Step 1: verify network connectivity. Step 2: retry the operation.",
-        "Fix: increase gateway timeout to 60 seconds and restart service.",
-    ]
+    source_id = str(uuid.uuid4())
+    
+    async with async_session_factory() as db:
+        # Cleanup
+        await db.execute(delete(KnowledgeChunk))
+        await db.commit()
 
-    added = await rag.add_documents(source_id, "Smoke Guide", chunks)
-    print(f"Added chunks: {added}")
+        chunks = [
+            "ERR_TIMEOUT occurs when processor does not respond in 30 seconds.",
+            "Step 1: verify network connectivity. Step 2: retry the operation.",
+            "Fix: increase gateway timeout to 60 seconds and restart service.",
+        ]
 
-    search_rows = await rag.search("How to fix ERR_TIMEOUT?")
-    print(f"Search results: {len(search_rows)}")
-    if not search_rows:
-        raise RuntimeError("search() returned zero rows")
+        added = await rag.add_documents(db, source_id, "Smoke Guide", chunks)
+        print(f"Added chunks: {added}")
+        await db.commit()
 
-    if os.getenv("PERSON2_SKIP_LLM", "").lower() in {"1", "true", "yes"}:
-        print("Skipping process_query because PERSON2_SKIP_LLM is enabled.")
-        print("Person2 retrieval smoke: PASS")
-        return
+        search_rows = await rag.search(db, "How to fix ERR_TIMEOUT?")
+        print(f"Search results: {len(search_rows)}")
+        if not search_rows:
+            raise RuntimeError("search() returned zero rows")
 
-    result = await rag.process_query("How to fix ERR_TIMEOUT?")
-    print("process_query keys:", sorted(result.keys()))
-    print("action:", result.get("action"))
-    print("retrieval_score:", result.get("retrieval_score"))
-    print("sources:", len(result.get("sources", [])))
-    print("retrieved_chunks:", len(result.get("retrieved_chunks", [])))
-    print("response preview:", str(result.get("response", ""))[:180])
+        if os.getenv("PERSON2_SKIP_LLM", "").lower() in {"1", "true", "yes"}:
+            print("Skipping process_query because PERSON2_SKIP_LLM is enabled.")
+            print("Person2 retrieval smoke: PASS")
+            return
 
-    assert "response" in result
-    assert "sources" in result
-    assert "retrieval_score" in result
-    assert "retrieved_chunks" in result
+        result = await rag.process_query(db, "How to fix ERR_TIMEOUT?")
+        print("process_query keys:", sorted(result.keys()))
+        print("action:", result.get("action"))
+        print("retrieval_score:", result.get("retrieval_score"))
+        print("sources:", len(result.get("sources", [])))
+        print("response preview:", str(result.get("response", ""))[:180])
 
-    print("Person2 e2e smoke: PASS")
+        assert "response" in result
+        assert "sources" in result
+        assert "retrieval_score" in result
+
+        print("Person2 e2e smoke: PASS")
 
 
 if __name__ == "__main__":

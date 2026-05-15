@@ -11,11 +11,14 @@ Design principles:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 from typing import Any, AsyncIterator
 
-from ai.chroma_utils import get_chroma_client, get_collection
+from sqlalchemy import select, and_, delete, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ai.embedding_engine import get_embedding_engine
 from ai.llm_engine import get_llm_engine
 from ai.prompts import (
@@ -25,6 +28,7 @@ from ai.prompts import (
 )
 from ai.utils import truncate_excerpt
 from config.settings import get_settings
+from models.knowledge_chunk import KnowledgeChunk
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +67,16 @@ def _clean_chunk(text: str) -> str:
     text = _BARE_URL.sub('', text)
     text = _HTML_TAG.sub('', text)
     text = _MULTI_NL.sub('\n\n', text)
+    
+    # Remove null bytes which PostgreSQL doesn't allow in UTF-8 strings
+    text = text.replace('\x00', '')
+    
     return text.strip()
-
 
 # ── RAGEngine ─────────────────────────────────────────────────────────────
 
 class RAGEngine:
-    """Retrieval + grounded generation engine."""
+    """Retrieval + grounded generation engine using pgvector."""
 
     def __init__(self, top_k: int = 5) -> None:
         settings = get_settings()
@@ -77,9 +84,7 @@ class RAGEngine:
         self.max_hops = 3
         self.embedding_engine = get_embedding_engine()
         self.llm_engine = get_llm_engine()
-        client = get_chroma_client()
-        self.collection = get_collection(client, settings.CHROMA_COLLECTION)
-        self.batch_size = settings.CHROMA_BATCH_SIZE
+        self.batch_size = settings.VECTOR_BATCH_SIZE
 
     # ------------------------------------------------------------------
     # Indexing
@@ -87,16 +92,13 @@ class RAGEngine:
 
     async def add_documents(
         self,
+        db: AsyncSession,
         source_id: str,
         source_title: str,
         chunks: list[str | dict[str, str]],
         source_url: str = "",
     ) -> int:
-        """Embed and upsert chunks into ChromaDB.
-
-        NOTE: Never call this with auto-generated fallback text. Only call it
-        with real documentation content from the ingestion pipeline.
-        """
+        """Embed and upsert chunks into PostgreSQL (pgvector)."""
         if not chunks:
             return 0
 
@@ -111,7 +113,6 @@ class RAGEngine:
         # Clean chunks inline before embedding
         clean_chunks = []
         clean_metadatas = []
-        import hashlib
         for i, item in enumerate(chunk_data):
             cleaned = _clean_chunk(item["content"])
             if len(cleaned) >= 50:
@@ -128,37 +129,30 @@ class RAGEngine:
             return 0
             
         embeddings = await self.embedding_engine.embed_documents(clean_chunks)
-        ids = [f"{source_id}_chunk_{hashlib.md5(c.encode()).hexdigest()[:12]}" for c in clean_chunks]
-
-        # Deduplicate within this batch to prevent ChromaDB DuplicateIDError.
-        # Although we use .upsert, ChromaDB prohibits duplicate IDs within a single list.
-        seen_ids = set()
-        final_chunks = []
-        final_metadatas = []
-        final_embeddings = []
-        final_ids = []
         
-        for i in range(len(ids)):
-            cid = ids[i]
-            if cid not in seen_ids:
-                seen_ids.add(cid)
-                final_chunks.append(clean_chunks[i])
-                final_metadatas.append(clean_metadatas[i])
-                final_embeddings.append(embeddings[i])
-                final_ids.append(cid)
-
-        # Upsert in batches.
-        for i in range(0, len(final_ids), self.batch_size):
-            end = i + self.batch_size
-            self.collection.upsert(
-                documents=final_chunks[i:end],
-                embeddings=final_embeddings[i:end],
-                metadatas=final_metadatas[i:end],
-                ids=final_ids[i:end],
+        # We don't strictly need the hash-based IDs anymore as Postgres handles PKs,
+        # but we use them or just rely on autoincrement UUIDs.
+        # The model uses UUIDCreatedModel.
+        
+        new_chunks = []
+        for i in range(len(clean_chunks)):
+            new_chunks.append(
+                KnowledgeChunk(
+                    source_id=source_id,
+                    chunk_index=clean_metadatas[i]["chunk_index"],
+                    content=clean_chunks[i],
+                    embedding_vector=embeddings[i],
+                    chunk_metadata=clean_metadatas[i]
+                )
             )
-        logger.info("Indexed %d unique chunks (dropped %d duplicates) for source '%s'", 
-                    len(final_ids), len(ids) - len(final_ids), source_title)
-        return len(final_ids)
+
+        # Batch insert
+        for i in range(0, len(new_chunks), self.batch_size):
+            db.add_all(new_chunks[i : i + self.batch_size])
+        
+        await db.flush()
+        logger.info("Indexed %d chunks for source '%s' into pgvector", len(new_chunks), source_title)
+        return len(new_chunks)
 
     # ------------------------------------------------------------------
     # Retrieval
@@ -166,35 +160,43 @@ class RAGEngine:
 
     async def search(
         self,
+        db: AsyncSession,
         query: str,
         top_k: int | None = None,
         filters: dict | None = None,
     ) -> list[dict[str, Any]]:
-        """Vector search in ChromaDB. Returns rows sorted by similarity desc."""
+        """Vector search in PostgreSQL using pgvector cosine distance."""
         k = top_k or self.top_k
         query_embedding = await self.embedding_engine.embed_query(query)
-        query_kwargs: dict[str, Any] = {
-            "query_embeddings": [query_embedding],
-            "n_results": k,
-        }
+        
+        # Build query with pgvector cosine distance
+        stmt = (
+            select(
+                KnowledgeChunk,
+                KnowledgeChunk.embedding_vector.cosine_distance(query_embedding).label("distance")
+            )
+            .order_by("distance")
+            .limit(k)
+        )
+        
+        # Apply filters (basic translation of ChromaDB-style filters)
         if filters:
-            query_kwargs["where"] = filters
+            if "source_id" in filters:
+                val = filters["source_id"]
+                if isinstance(val, dict) and "$in" in val:
+                    stmt = stmt.where(KnowledgeChunk.source_id.in_(val["$in"]))
+                else:
+                    stmt = stmt.where(KnowledgeChunk.source_id == val)
 
-        result = await asyncio.to_thread(self.collection.query, **query_kwargs)
-
-        ids       = result.get("ids",       [[]])[0]
-        docs      = result.get("documents", [[]])[0]
-        metadatas = result.get("metadatas", [[]])[0]
-        distances = result.get("distances", [[]])[0]
-
+        result = await db.execute(stmt)
         rows: list[dict[str, Any]] = []
-        for i in range(len(ids)):
-            dist = distances[i] if i < len(distances) else 1.0
+        
+        for chunk, dist in result.all():
             rows.append(
                 {
-                    "id":         ids[i],
-                    "content":    _clean_chunk(docs[i]),  # clean on read too
-                    "metadata":   metadatas[i] or {},
+                    "id":         str(chunk.id),
+                    "content":    _clean_chunk(chunk.content),
+                    "metadata":   chunk.chunk_metadata or {},
                     "distance":   dist,
                     "similarity": round(1.0 - float(dist), 4),
                 }
@@ -231,18 +233,13 @@ class RAGEngine:
             yield chunk
 
     # ------------------------------------------------------------------
-    # Generation — non-streaming (used by process_message / stream_message)
+    # Generation — non-streaming
     # ------------------------------------------------------------------
 
     async def generate_response(
-        self, query: str, context_docs: list[dict[str, Any]]
+        self, db: AsyncSession, query: str, context_docs: list[dict[str, Any]]
     ) -> tuple[str, list[dict[str, Any]]]:
-        """Answer the query strictly from context_docs with agentic re-searching.
-
-        Returns:
-            (answer_text, source_list)
-            answer_text is 'INSUFFICIENT_DOCUMENTATION' when docs don't help.
-        """
+        """Answer the query strictly from context_docs with agentic re-searching."""
         all_docs = list(context_docs)
         seen_queries = {query.lower().strip()}
 
@@ -270,7 +267,7 @@ class RAGEngine:
                 seen_queries.add(new_query)
                 logger.info("🔍 [RAG] Hop %d: re-searching for '%s'", hop, new_query)
                 
-                new_docs = await self.search(content, top_k=3)
+                new_docs = await self.search(db, content, top_k=3)
                 
                 # Merge and deduplicate by ID
                 seen_ids = {d["id"] for d in all_docs}
@@ -345,9 +342,9 @@ class RAGEngine:
             )
         return sources
 
-    async def process_query(self, query: str) -> dict[str, Any]:
+    async def process_query(self, db: AsyncSession, query: str) -> dict[str, Any]:
         """Convenience method for standalone testing."""
-        context_docs = await self.search(query)
+        context_docs = await self.search(db, query)
         if not context_docs:
             return {
                 "response": "I couldn't find relevant information in the knowledge base.",
@@ -356,7 +353,7 @@ class RAGEngine:
                 "retrieval_score": 0.0,
             }
         avg_similarity = sum(d["similarity"] for d in context_docs) / len(context_docs)
-        response, sources = await self.generate_response(query, context_docs)
+        response, sources = await self.generate_response(db, query, context_docs)
         
         return {
             "response": response,
