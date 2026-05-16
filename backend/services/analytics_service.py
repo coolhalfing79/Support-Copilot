@@ -127,7 +127,7 @@ class AnalyticsService:
                 TrendPoint(
                     date=row.day,
                     value=row.count,
-                    label=row.day.strftime("%Y-%m-%d"),
+                    label=row.day if isinstance(row.day, str) else row.day.strftime("%Y-%m-%d"),
                 )
                 for row in rows
             ]
@@ -152,7 +152,7 @@ class AnalyticsService:
                 TrendPoint(
                     date=row.day,
                     value=row.count,
-                    label=row.day.strftime("%Y-%m-%d"),
+                    label=row.day if isinstance(row.day, str) else row.day.strftime("%Y-%m-%d"),
                 )
                 for row in rows
             ]
@@ -173,7 +173,7 @@ class AnalyticsService:
                 TrendPoint(
                     date=row.day,
                     value=row.count,
-                    label=row.day.strftime("%Y-%m-%d"),
+                    label=row.day if isinstance(row.day, str) else row.day.strftime("%Y-%m-%d"),
                 )
                 for row in rows
             ]
