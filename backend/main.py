@@ -11,11 +11,16 @@ from middleware.rate_limiter import setup_rate_limiter
 from api.v1.ws.websocket import router as ws_router
 from utils.logging_config import setup_logging
 from seed_admin import seed_admin
+from models import Base
 
 setup_logging()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Create tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
     await seed_admin()
     yield
     await engine.dispose()

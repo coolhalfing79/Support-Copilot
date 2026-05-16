@@ -40,7 +40,6 @@ COPY . .
 
 RUN adduser --disabled-password --gecos "" appuser && \
     mkdir -p /app/data/chroma && \
-    chmod +x scripts/entrypoint.sh && \
     chown -R appuser:appuser /app/fastembed_cache /app/data
 
 VOLUME ["/app/data"]
@@ -49,5 +48,4 @@ USER appuser
 
 EXPOSE 8000
 
-ENTRYPOINT ["scripts/entrypoint.sh"]
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
