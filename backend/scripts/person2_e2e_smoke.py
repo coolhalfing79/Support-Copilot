@@ -34,8 +34,8 @@ from config.settings import get_settings
 
 async def main() -> None:
     settings = get_settings()
-    if not settings.GEMINI_API_KEY:
-        raise RuntimeError("GEMINI_API_KEY missing in backend/.env")
+    if not settings.OPENAI_API_KEY:
+        raise RuntimeError("OPENAI_API_KEY missing in backend/.env")
 
     client = get_chroma_client()
     reset_collection(client, settings.CHROMA_COLLECTION)

@@ -1,4 +1,4 @@
-"""Google Gemini LLM engine."""
+"""OpenAI chat LLM engine."""
 
 from __future__ import annotations
 
@@ -6,8 +6,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
+from openai import AsyncOpenAI
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config.settings import get_settings
@@ -16,38 +15,33 @@ _llm_instance: "LLMEngine | None" = None
 
 
 class LLMEngine:
-    """Engine for Gemini chat inference."""
+    """Engine for OpenAI chat inference."""
 
     def __init__(self) -> None:
         settings = get_settings()
-        if not settings.GEMINI_API_KEY:
+        if not settings.OPENAI_API_KEY:
             raise ValueError(
-                "GEMINI_API_KEY is not configured. Set it in backend/.env before using LLMEngine."
+                "OPENAI_API_KEY is not configured. Set it in backend/.env before using LLMEngine."
             )
-        self.model = ChatGoogleGenerativeAI(
-            model=settings.GEMINI_MODEL,
-            google_api_key=settings.GEMINI_API_KEY,
-            convert_system_message_to_human=True,
-            temperature=0.3,
-            max_tokens=1024,
-            max_retries=0, # Disable internal 60s wait on rate limits
-        )
+        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self.model = settings.OPENAI_MODEL
+        self.max_tokens = settings.OPENAI_MAX_TOKENS
 
     def _to_langchain_messages(
         self, messages: list[dict[str, str]], system_prompt: str | None
-    ) -> list:
-        lc_messages: list = []
+    ) -> list[dict[str, str]]:
+        lc_messages: list[dict[str, str]] = []
         if system_prompt:
-            lc_messages.append(SystemMessage(content=system_prompt))
+            lc_messages.append({"role": "system", "content": system_prompt})
         for item in messages:
             role = item.get("role", "user")
             content = item.get("content", "")
             if role == "user":
-                lc_messages.append(HumanMessage(content=content))
+                lc_messages.append({"role": "user", "content": content})
             elif role == "assistant":
-                lc_messages.append(AIMessage(content=content))
+                lc_messages.append({"role": "assistant", "content": content})
             else:
-                lc_messages.append(SystemMessage(content=content))
+                lc_messages.append({"role": "system", "content": content})
         return lc_messages
 
     @retry(
@@ -61,8 +55,14 @@ class LLMEngine:
     ) -> str:
         lc = self._to_langchain_messages(messages, system_prompt)
         try:
-            response = await self.model.ainvoke(lc)
-            return str(response.content)
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=lc,
+                temperature=0.3,
+                max_tokens=self.max_tokens,
+            )
+            content = response.choices[0].message.content
+            return str(content or "")
         except Exception as e:
             return f"Mocked Response due to API Error: {str(e)[:100]}..."
 
@@ -71,8 +71,15 @@ class LLMEngine:
     ) -> AsyncIterator[str]:
         lc = self._to_langchain_messages(messages, system_prompt)
         try:
-            async for chunk in self.model.astream(lc):
-                content = getattr(chunk, "content", None)
+            stream = await self.client.chat.completions.create(
+                model=self.model,
+                messages=lc,
+                temperature=0.3,
+                max_tokens=self.max_tokens,
+                stream=True,
+            )
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content
                 if content:
                     yield str(content)
         except Exception as e:

@@ -3,7 +3,7 @@ Service Factory
 
 Lightweight factory functions to create service instances with proper
 dependency wiring.  Avoids module-level instantiation which would fail
-if external services (ChromaDB, Gemini) are not yet available at import time.
+if external services (ChromaDB, LLM provider) are not yet available at import time.
 """
 
 from __future__ import annotations

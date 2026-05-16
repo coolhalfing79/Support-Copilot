@@ -15,6 +15,7 @@ import '@xyflow/react/dist/style.css';
 import axios from 'axios';
 import { FileText, Database, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { API_BASE_URL } from '@/config/api';
 
 interface GraphNodeData extends Record<string, unknown> {
   label: string;
@@ -86,7 +87,7 @@ export const KnowledgeGraph: React.FC<KnowledgeGraphProps> = ({ activeSourceIds 
   useEffect(() => {
     const fetchGraph = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/api/v1/knowledge/graph');
+        const response = await axios.get(`${API_BASE_URL}/knowledge/graph`)
         const data = response.data as { nodes: ServerNode[], edges: ServerEdge[] };
         
         const newNodes: CustomNode[] = data.nodes.map((n: ServerNode, i: number) => {

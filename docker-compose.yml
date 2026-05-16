@@ -1,3 +1,5 @@
+version: "2.4"
+
 services:
   db:
     image: docker.io/pgvector/pgvector:pg16
@@ -64,7 +66,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "8080:80"
+      - "8080:8000"
     depends_on:
       backend:
         condition: service_healthy

@@ -20,11 +20,8 @@ email-validator==2.1.0.post1
 
 # AI/ML (Person 2+)
 langchain==0.1.9
-langchain-google-genai==0.0.6
 langchain-community==0.0.21
-# Keep compatible with langchain-google-genai==0.0.6
-google-generativeai==0.3.2
-google-genai>=1.11.0
+openai>=1.0.0
 tenacity==8.2.3
 fastembed>=0.2.0
 

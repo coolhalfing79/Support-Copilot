@@ -36,6 +36,11 @@ export interface Session {
   created_at: string
 }
 
+interface ServerMessage extends Omit<Message, 'timestamp'> {
+  timestamp?: string
+  created_at?: string
+}
+
 interface UserState {
   sessionId: string | null
   sessions: Session[]
@@ -115,9 +120,9 @@ export const useUserStore = create<UserState>((set) => ({
     set({ isHistoryLoading: true })
     try {
       const response = await api.get(`/chat/sessions/${id}`)
-      const serverMessages = (response.data.messages || []).map((msg: any) => ({
+      const serverMessages: Message[] = ((response.data.messages || []) as ServerMessage[]).map((msg) => ({
         ...msg,
-        timestamp: msg.created_at || msg.timestamp
+        timestamp: msg.created_at || msg.timestamp || new Date().toISOString()
       }))
       
       set((state) => {

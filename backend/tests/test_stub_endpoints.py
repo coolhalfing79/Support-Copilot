@@ -5,7 +5,7 @@ These replaced the original Person 1 stub tests that asserted 501 responses.
 Now that the endpoints are live, we verify they return proper responses.
 
 NOTE: These tests hit real routes via ASGI transport.  The chat and ticket
-endpoints connect to external services (DB, ChromaDB, Gemini) which may
+endpoints connect to external services (DB, ChromaDB, LLM provider) which may
 not be available in CI.  We mark them so they can be skipped selectively.
 """
 

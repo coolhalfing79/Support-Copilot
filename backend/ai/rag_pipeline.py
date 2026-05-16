@@ -1,4 +1,4 @@
-"""RAG pipeline: retrieve from Chroma and generate with Gemini.
+"""RAG pipeline: retrieve from Chroma and generate with the configured LLM.
 
 Design principles:
   - Search ChromaDB for top-k chunks relevant to the query.

@@ -118,9 +118,9 @@ export const RagGraphModal = ({ isOpen, onClose, message }: RagGraphModalProps) 
       position: { x: 400, y: 600 },
       data: {
         label: (
-          <div className="flex flex-col items-center gap-2 p-2 w-48" title="Synthesizing the final answer using the Gemini LLM, strictly grounded in the provided context chunks.">
+          <div className="flex flex-col items-center gap-2 p-2 w-48" title="Synthesizing the final answer using the configured LLM, strictly grounded in the provided context chunks.">
             <div className="bg-[#f4f4f4] p-2 rounded-full"><BrainCircuit className="w-5 h-5 text-[#8a3ffc]" /></div>
-            <span className="font-bold text-[#161616] text-sm text-center">Gemini 2.0 Flash</span>
+            <span className="font-bold text-[#161616] text-sm text-center">OpenAI ChatGPT</span>
             <span className="text-xs text-[#525252] text-center">Synthesizing Answer</span>
           </div>
         )

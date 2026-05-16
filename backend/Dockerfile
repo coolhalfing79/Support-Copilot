@@ -38,6 +38,9 @@ COPY --from=builder /app/fastembed_cache /app/fastembed_cache
 
 COPY . .
 
+RUN sed -i 's/\r$//' scripts/entrypoint.sh && \
+    chmod +x scripts/entrypoint.sh
+
 RUN adduser --disabled-password --gecos "" appuser && \
     chown -R appuser:appuser /app/fastembed_cache
 
@@ -45,5 +48,5 @@ USER appuser
 
 EXPOSE 8000
 
-ENTRYPOINT ["scripts/entrypoint.sh"]
+ENTRYPOINT ["sh", "scripts/entrypoint.sh"]
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

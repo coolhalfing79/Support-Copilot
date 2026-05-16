@@ -4,6 +4,7 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import type { SourceInfo } from '../store/userStore'
 import axios from 'axios'
+import { API_BASE_URL } from '@/config/api'
 
 // Utility to strip markdown syntax from strings
 const stripMarkdown = (s: string) => s.replace(/^[#*\-+\s]+/, '').replace(/[*_`]/g, '').trim()
@@ -596,7 +597,7 @@ function GraphDataWrapper({ activeSourceId, source, answerContent }: { activeSou
     let isMounted = true
     const fetchGraph = async () => {
       try {
-        const response = await axios.get('http://localhost:8000/api/v1/knowledge/graph')
+        const response = await axios.get(`${API_BASE_URL}/knowledge/graph`)
         if (!isMounted) return
         const data = response.data
 

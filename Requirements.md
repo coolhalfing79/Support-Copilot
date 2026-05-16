@@ -10,7 +10,7 @@ The **AI-Powered L2 Support Copilot** is an enterprise-ready system designed to 
 *   **Database**: PostgreSQL 15+ with `pgvector` for vector storage (knowledge chunks & relational data)
 *   **ORM**: SQLAlchemy 2.0 (Async) + Alembic for migrations
 *   **Vector DB**: ChromaDB 1.5+ (for document retrieval)
-*   **AI/LLM**: Google Gemini (gemini-2.0-flash via LangChain)
+*   **AI/LLM**: OpenAI Chat Completions (`gpt-4o-mini` via OpenAI Python client)
 *   **Embeddings**: `fastembed` (BAAI/bge-small-en-v1.5, running locally/on-device)
 *   **Scraping**: `httpx`, `BeautifulSoup4`, and Jina AI Reader API (`r.jina.ai`)
 *   **WebSocket**: Native FastAPI WebSockets for streaming responses.
@@ -136,7 +136,7 @@ The system uses PostgreSQL for relational data.
 ## 7. Configuration & Environment Variables
 Defined in `.env`:
 *   `DATABASE_URL`: PostgreSQL connection string.
-*   `GEMINI_API_KEY`: Required for LLM inference.
+*   `OPENAI_API_KEY`: Required for LLM inference.
 *   `JIRA_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_PROJECT_KEY`: Required for actual Jira syncing (mocks if empty).
 *   `CHROMA_HOST`, `CHROMA_PORT`: Vector DB config.
 

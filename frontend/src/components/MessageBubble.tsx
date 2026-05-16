@@ -35,8 +35,8 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
 
   // Classify answer type
   const hasSources = isAI && message.sources && message.sources.length > 0
-  const isGeminiFallback = hasSources && message.sources!.every(s => s.title === 'AI Fallback Knowledge')
-  const isRagHit = hasSources && !isGeminiFallback
+  const isLlmFallback = hasSources && message.sources!.every(s => s.title === 'AI Fallback Knowledge')
+  const isRagHit = hasSources && !isLlmFallback
   const isEscalated = isAI && message.action === 'escalated'
 
   // Safe timestamp parse
@@ -118,8 +118,8 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
             </div>
           )}
 
-          {/* State 2: Gemini fallback — amber badge, no chips */}
-          {isGeminiFallback && (
+          {/* State 2: LLM fallback - amber badge, no chips */}
+          {isLlmFallback && (
             <div className="mt-3 pt-3 border-t border-[#e0e0e0]">
               <div className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-[#fdf6e3] border border-[#f1c21b]/30">
                 <BrainCircuit className="w-3.5 h-3.5 text-[#b28600] flex-shrink-0" />

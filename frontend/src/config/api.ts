@@ -1,7 +1,25 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
-const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/api/v1/chat/ws'
+declare global {
+  interface Window {
+    __APP_CONFIG__?: {
+      API_BASE_URL?: string
+      WS_BASE_URL?: string
+    }
+  }
+}
+
+const runtimeConfig = typeof window !== 'undefined' ? window.__APP_CONFIG__ : undefined
+
+const API_BASE_URL =
+  runtimeConfig?.API_BASE_URL ||
+  import.meta.env.VITE_API_BASE_URL ||
+  'http://localhost:8000/api/v1'
+
+const WS_BASE_URL =
+  runtimeConfig?.WS_BASE_URL ||
+  import.meta.env.VITE_WS_URL ||
+  'ws://localhost:8000/api/v1/chat/ws'
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

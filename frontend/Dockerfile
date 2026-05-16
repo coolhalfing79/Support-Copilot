@@ -35,6 +35,11 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Copy custom nginx config (see nginx.conf alongside this Dockerfile)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+# Runtime config lets SemicoLabs point the static frontend at the separately
+# deployed backend app without rebuilding the Vite bundle.
+COPY docker-runtime-config.sh /docker-entrypoint.d/99-runtime-config.sh
+RUN chmod +x /docker-entrypoint.d/99-runtime-config.sh
+
+EXPOSE 8000
 
 CMD ["nginx", "-g", "daemon off;"]

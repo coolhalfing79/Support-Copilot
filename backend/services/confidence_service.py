@@ -42,7 +42,7 @@ class ConfidenceService:
         self,
         llm_engine: LLMEngine | None = None,
     ) -> None:
-        # Import lazily so module can be imported even if Gemini isn't configured.
+        # Import lazily so module can be imported even if the LLM isn't configured.
         if llm_engine is None:
             from ai.llm_engine import get_llm_engine
             llm_engine = get_llm_engine()
