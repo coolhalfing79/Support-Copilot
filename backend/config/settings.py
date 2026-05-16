@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
 
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/copilot"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./data/app.db"
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     DATABASE_POOL_PRE_PING: bool = True
@@ -32,8 +32,7 @@ class Settings(BaseSettings):
     JIRA_DEFAULT_ISSUE_TYPE: str = "Bug"
     JIRA_DEFAULT_ASSIGNEE: str | None = None
 
-    CHROMA_HOST: str = "localhost"
-    CHROMA_PORT: int = 8001
+    CHROMA_PATH: str = "./data/chroma"
     CHROMA_COLLECTION: str = "knowledge_chunks"
     CHROMA_BATCH_SIZE: int = 5000
 

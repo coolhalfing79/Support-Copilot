@@ -8,7 +8,6 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -24,12 +23,13 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/install/lib/python3.12/site-packages \
-    FASTEMBED_CACHE_PATH=/app/fastembed_cache
+    FASTEMBED_CACHE_PATH=/app/fastembed_cache \
+    DATABASE_URL=sqlite+aiosqlite:////app/data/app.db \
+    CHROMA_PATH=/app/data/chroma
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,7 +39,11 @@ COPY --from=builder /app/fastembed_cache /app/fastembed_cache
 COPY . .
 
 RUN adduser --disabled-password --gecos "" appuser && \
-    chown -R appuser:appuser /app/fastembed_cache
+    mkdir -p /app/data/chroma && \
+    chmod +x scripts/entrypoint.sh && \
+    chown -R appuser:appuser /app/fastembed_cache /app/data
+
+VOLUME ["/app/data"]
 
 USER appuser
 

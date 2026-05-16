@@ -1,10 +1,10 @@
+import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SAEnum, ForeignKey, String
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import TimestampedModel
+from models.base import GUID, TimestampedModel
 from models.enums import SessionStatus
 
 if TYPE_CHECKING:
@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 class Session(TimestampedModel):
     __tablename__ = "sessions"
 
-    user_id: Mapped[PGUUID] = mapped_column(
-        PGUUID(as_uuid=True),
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

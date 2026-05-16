@@ -1,10 +1,10 @@
+import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Enum as SAEnum, Float, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy import Enum as SAEnum, Float, ForeignKey, JSON, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import UUIDCreatedModel
+from models.base import GUID, UUIDCreatedModel
 from models.enums import MessageRole
 
 if TYPE_CHECKING:
@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 class Message(UUIDCreatedModel):
     __tablename__ = "messages"
 
-    session_id: Mapped[PGUUID] = mapped_column(
-        PGUUID(as_uuid=True),
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(),
         ForeignKey("sessions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -27,8 +27,7 @@ class Message(UUIDCreatedModel):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     confidence_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     sources: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(
-        JSONB, nullable=True
+        JSON, nullable=True
     )
-    action: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped["Session"] = relationship("Session", back_populates="messages")

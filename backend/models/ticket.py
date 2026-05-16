@@ -1,10 +1,10 @@
+import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Enum as SAEnum, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy import Enum as SAEnum, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models.base import TimestampedModel
+from models.base import GUID, TimestampedModel
 from models.enums import TicketSeverity, TicketStatus
 
 if TYPE_CHECKING:
@@ -16,8 +16,8 @@ class Ticket(TimestampedModel):
 
     jira_issue_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
     jira_issue_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    session_id: Mapped[PGUUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(),
         ForeignKey("sessions.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -42,11 +42,9 @@ class Ticket(TimestampedModel):
     steps_to_reproduce: Mapped[str | None] = mapped_column(Text, nullable=True)
     troubleshooting_attempted: Mapped[str | None] = mapped_column(Text, nullable=True)
     conversation_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    doc_references: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True
-    )
+    doc_references: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     jira_comments: Mapped[list[dict[str, Any]] | None] = mapped_column(
-        JSONB, nullable=True
+        JSON, nullable=True
     )
     assignee: Mapped[str | None] = mapped_column(String(100), nullable=True)
     jira_synced: Mapped[bool] = mapped_column(default=False)

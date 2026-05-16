@@ -1,11 +1,11 @@
 """Check quality filter impact on ALL sources, not just Java."""
 from utils.text_splitter import _is_quality_chunk
 
-import chromadb
+from ai.chroma_utils import get_chroma_client
 from config.settings import get_settings
 
 settings = get_settings()
-client = chromadb.HttpClient(host=settings.CHROMA_HOST, port=settings.CHROMA_PORT)
+client = get_chroma_client()
 collection = client.get_collection(settings.CHROMA_COLLECTION)
 
 all_data = collection.get(include=["documents", "metadatas"])

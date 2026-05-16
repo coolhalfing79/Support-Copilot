@@ -1,6 +1,8 @@
 """ChromaDB integration utilities."""
 
 from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
 import chromadb
 
@@ -8,16 +10,14 @@ from config.settings import get_settings
 
 
 @lru_cache(maxsize=1)
-def get_chroma_client() -> chromadb.HttpClient:
-    """Return Chroma HttpClient configured from settings."""
+def get_chroma_client() -> Any:
+    """Return an embedded persistent Chroma client."""
     settings = get_settings()
-    return chromadb.HttpClient(
-        host=settings.CHROMA_HOST,
-        port=settings.CHROMA_PORT,
-    )
+    Path(settings.CHROMA_PATH).expanduser().mkdir(parents=True, exist_ok=True)
+    return chromadb.PersistentClient(path=settings.CHROMA_PATH)
 
 
-def get_collection(client: chromadb.HttpClient, name: str = "knowledge_chunks"):
+def get_collection(client: Any, name: str = "knowledge_chunks") -> Any:
     """Get or create Chroma collection."""
     return client.get_or_create_collection(
         name=name,
@@ -25,7 +25,7 @@ def get_collection(client: chromadb.HttpClient, name: str = "knowledge_chunks"):
     )
 
 
-def reset_collection(client: chromadb.HttpClient, name: str = "knowledge_chunks"):
+def reset_collection(client: Any, name: str = "knowledge_chunks") -> Any:
     """Delete and recreate collection."""
     try:
         client.delete_collection(name)

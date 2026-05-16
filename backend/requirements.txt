@@ -5,13 +5,9 @@ python-multipart==0.0.6
 
 # Database
 sqlalchemy==2.0.25
-asyncpg==0.29.0
+aiosqlite==0.20.0
 greenlet==3.0.3
 alembic==1.13.1
-# psycopg2-binary has no reliable wheel on Python 3.13 in this setup.
-# Keep optional and skip install on 3.13+ to avoid pg_config build failures.
-psycopg2-binary==2.9.9; python_version < "3.13"
-pgvector==0.2.4
 
 # Validation
 pydantic>=2.8.2

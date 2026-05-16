@@ -1,9 +1,35 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, func
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.types import CHAR, TypeDecorator
+
+
+class GUID(TypeDecorator[uuid.UUID]):
+    """Platform-independent UUID stored as a canonical string."""
+
+    impl = CHAR(36)
+    cache_ok = True
+
+    def process_bind_param(
+        self, value: uuid.UUID | str | None, dialect: Any
+    ) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, uuid.UUID):
+            return str(value)
+        return str(uuid.UUID(str(value)))
+
+    def process_result_value(
+        self, value: str | uuid.UUID | None, dialect: Any
+    ) -> uuid.UUID | None:
+        if value is None:
+            return None
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
 
 
 class Base(DeclarativeBase):
@@ -16,7 +42,7 @@ class TimestampedModel(Base):
     __abstract__ = True
 
     id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        GUID(), primary_key=True, default=uuid.uuid4
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -34,7 +60,7 @@ class UUIDCreatedModel(Base):
     __abstract__ = True
 
     id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        GUID(), primary_key=True, default=uuid.uuid4
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

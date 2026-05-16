@@ -213,7 +213,7 @@ class TicketService:
                 if ticket.jira_comments is None:
                     ticket.jira_comments = []
                 
-                # Append to list - SQLAlchemy JSONB change detection
+                # Assign a new list so SQLAlchemy detects the JSON change.
                 comments = list(ticket.jira_comments)
                 comments.append({
                     "id": jira_comment.get("id"),
