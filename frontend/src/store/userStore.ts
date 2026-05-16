@@ -103,7 +103,7 @@ export const useUserStore = create<UserState>((set) => ({
 
   fetchSessions: async () => {
     try {
-      const response = await api.get('/chat/sessions')
+      const response = await api.get('/chat/sessions?app=5a7fee59-64b5-4b20-b64f-55add963f509')
       const sessions = response.data.sessions || response.data
       set({ sessions })
     } catch (err: unknown) {
@@ -114,7 +114,7 @@ export const useUserStore = create<UserState>((set) => ({
   fetchSessionHistory: async (id) => {
     set({ isHistoryLoading: true })
     try {
-      const response = await api.get(`/chat/sessions/${id}`)
+      const response = await api.get(`/chat/sessions/${id}?app=5a7fee59-64b5-4b20-b64f-55add963f509`)
       const serverMessages = (response.data.messages || []).map((msg: any) => ({
         ...msg,
         timestamp: msg.created_at || msg.timestamp
@@ -142,7 +142,7 @@ export const useUserStore = create<UserState>((set) => ({
 
   fetchAvailableSources: async () => {
     try {
-      const response = await api.get('/knowledge/sources')
+      const response = await api.get('/knowledge/sources?app=5a7fee59-64b5-4b20-b64f-55add963f509')
       const sources = response.data.sources || response.data
       set({ availableSources: sources })
     } catch (err: unknown) {

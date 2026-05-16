@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1'
-const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/api/v1/chat/ws'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://solution1.demopersistent.com/api/v1"
+const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'ws://solution1.demopersistent.com/api/v1/chat/ws'
 
 export const api = axios.create({
   baseURL: API_BASE_URL,

@@ -52,14 +52,14 @@ export const useWebSocket = (sessionId: string | null) => {
       globalSocket = null
     }
 
-    console.log('🌐 [WebSocket] Connecting to:', `${WS_BASE_URL}/${sessionId}`)
+    console.log('🌐 [WebSocket] Connecting to:', `${WS_BASE_URL}/${sessionId}?app=5a7fee59-64b5-4b20-b64f-55add963f509`)
     globalSessionId = sessionId
     
     // Attach the real JWT token so the backend can validate the user
     const token = useAuthStore.getState().token || ''
     const url = token
-      ? `${WS_BASE_URL}/${sessionId}?token=${token}`
-      : `${WS_BASE_URL}/${sessionId}`
+      ? `${WS_BASE_URL}/${sessionId}?token=${token}&app=5a7fee59-64b5-4b20-b64f-55add963f509`
+      : `${WS_BASE_URL}/${sessionId}?app=5a7fee59-64b5-4b20-b64f-55add963f509`
     
     try {
       const ws = new WebSocket(url)

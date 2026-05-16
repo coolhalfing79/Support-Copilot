@@ -108,7 +108,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   loadKnowledgeSources: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await api.get('/knowledge/sources')
+      const response = await api.get('/knowledge/sources?app=5a7fee59-64b5-4b20-b64f-55add963f509')
       set({ knowledgeSources: response.data.sources || response.data, isLoading: false })
     } catch (err: unknown) {
       const axiosError = err as AxiosError<{ message?: string }>
@@ -119,7 +119,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   addKnowledgeSource: async (url, title) => {
     set({ isAddingSource: true, error: null })
     try {
-      const response = await api.post('/knowledge/sources', { url, title })
+      const response = await api.post('/knowledge/sources?app=5a7fee59-64b5-4b20-b64f-55add963f509', { url, title })
       set((state) => ({
         knowledgeSources: [response.data, ...state.knowledgeSources],
         isAddingSource: false,
@@ -132,7 +132,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   
   deleteKnowledgeSource: async (id) => {
     try {
-      await api.delete(`/knowledge/sources/${id}`)
+      await api.delete(`/knowledge/sources/${id}?app=5a7fee59-64b5-4b20-b64f-55add963f509`)
       set((state) => ({
         knowledgeSources: state.knowledgeSources.filter((s) => s.id !== id),
       }))
@@ -145,7 +145,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   reindexSource: async (id) => {
     set({ isRefreshing: id })
     try {
-      await api.post(`/knowledge/sources/${id}/reindex`)
+      await api.post(`/knowledge/sources/${id}/reindex?app=5a7fee59-64b5-4b20-b64f-55add963f509`)
       set((state) => ({
         knowledgeSources: state.knowledgeSources.map((s) =>
           s.id === id ? { ...s, status: 'processing' as const } : s
@@ -166,6 +166,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
       const params: Record<string, string> = {}
       if (filterStatus) params.status = filterStatus
       if (filterSeverity) params.severity = filterSeverity
+      params.app = "5a7fee59-64b5-4b20-b64f-55add963f509";
       
       const response = await api.get('/tickets', { params })
       set({ tickets: response.data.tickets || response.data, isLoading: false })
@@ -191,7 +192,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   syncTicket: async (id) => {
     set({ isLoading: true, error: null })
     try {
-      const response = await api.get(`/tickets/${id}?refresh=true`)
+      const response = await api.get(`/tickets/${id}?refresh=true&app=5a7fee59-64b5-4b20-b64f-55add963f509`)
       const updatedTicket = response.data.ticket || response.data
       set((state) => ({
         tickets: state.tickets.map((t) => (t.id === id ? updatedTicket : t)),
@@ -207,7 +208,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   addTicketComment: async (id, comment) => {
     set({ error: null })
     try {
-      await api.post(`/tickets/${id}/comment`, { comment, source: 'admin' })
+      await api.post(`/tickets/${id}/comment?app=5a7fee59-64b5-4b20-b64f-55add963f509`, { comment, source: 'admin' })
       // Reload ticket to get updated comments
       const response = await api.get(`/tickets/${id}`)
       const updatedTicket = response.data.ticket || response.data
@@ -223,7 +224,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
 
   loadIssueTypes: async () => {
     try {
-      const response = await api.get('/tickets/jira/issue-types')
+      const response = await api.get('/tickets/jira/issue-types?app=5a7fee59-64b5-4b20-b64f-55add963f509')
       return response.data.issue_types || response.data
     } catch (err: unknown) {
       const axiosError = err as AxiosError<{ message?: string }>
@@ -236,7 +237,7 @@ export const useAdminStore = create<AdminState>((set, get) => ({
   loadMetrics: async () => {
     set({ isLoading: true, error: null })
     try {
-      const response = await api.get('/analytics/overview')
+      const response = await api.get('/analytics/overview?app=5a7fee59-64b5-4b20-b64f-55add963f509')
       // Map response to MetricOverview
       const data = response.data.metrics || response.data
       set({ metrics: data, isLoading: false })

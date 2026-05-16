@@ -42,7 +42,7 @@ const ManualEscalateModal = ({ onClose }: { onClose: () => void }) => {
     const fetchData = async () => {
       try {
         const [sessionsRes, types] = await Promise.all([
-          axios.get(`${API_BASE_URL}/chat/sessions`),
+          axios.get(`${API_BASE_URL}/chat/sessions?app=5a7fee59-64b5-4b20-b64f-55add963f509`),
           loadIssueTypes()
         ])
         setSessions(sessionsRes.data.sessions || sessionsRes.data)
@@ -61,9 +61,9 @@ const ManualEscalateModal = ({ onClose }: { onClose: () => void }) => {
     if (!selectedSession) return
     setIsEscalating(true)
     try {
-      await axios.post(`${API_BASE_URL}/tickets/escalate`, {
+      await axios.post(`${API_BASE_URL}/tickets/escalate?app=5a7fee59-64b5-4b20-b64f-55add963f509`, {
         session_id: selectedSession,
-        issue_type: selectedIssueType
+        issue_type: selectedIssueType,
       })
       await loadTickets()
       onClose()

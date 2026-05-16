@@ -30,7 +30,7 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (email, password) => {
         try {
-          const response = await api.post('/auth/login', { email, password })
+          const response = await api.post('/auth/login?app=5a7fee59-64b5-4b20-b64f-55add963f509', { email, password })
           const { access_token, role, name, id } = response.data
           
           const user: User = {
@@ -54,7 +54,7 @@ export const useAuthStore = create<AuthState>()(
 
       register: async (username, email, password, role) => {
         try {
-          await api.post('/auth/register', { username, email, password, role })
+          await api.post('/auth/register?app=5a7fee59-64b5-4b20-b64f-55add963f509', { username, email, password, role })
         } catch (err: unknown) {
           console.error('Registration failed', err)
           throw err
